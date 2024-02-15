@@ -1,5 +1,11 @@
 # pg_profile changelog
 
+## 4.4
+- Query text preview in "Top SQL by ..." report sections (@Djoongaar)
+- Substring-based report entries filter (@Djoongaar)
+- Samples import rewritten. Import performance improved for huge dumps
+- *pg_stat_kcache* 2.2.3 supported
+
 ## 4.3
 - Postgres 16 supported
 - data collection supported for *pg_stat_slru*
