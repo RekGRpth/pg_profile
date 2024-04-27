@@ -17,12 +17,13 @@ class ReportNavigator {
         }
     }
 
-    static buildPageContent(data, parentNode) {
+    static buildPageContent(data, parentNode, visibility) {
         data.sections.forEach(section => {
             let hasTableCap = ('tbl_cap' in section);
             let hasNestedSections = ('sections' in section);
             let ul = document.createElement('ul');
             let li = document.createElement('li');
+            li.classList.add(visibility);
 
             /** Creating <li> and <a> tags inside <ul> */
             if (hasTableCap) {
@@ -31,17 +32,32 @@ class ReportNavigator {
 
                 a.innerHTML = section.tbl_cap;
                 a.href = `#${section.href}`;
+                a.classList.add('anchor');
 
                 li.setAttribute('id', `navigator_${section.href}`);
                 li.appendChild(a);
+
                 parentNode.appendChild(li);
             } else {
                 ul = li;
             }
             /** Recursive call for building nested content */
             if (hasNestedSections) {
-                parentNode.appendChild(this.buildPageContent(section, ul));
+                parentNode.appendChild(this.buildPageContent(section, ul, "visible"));
             }
+            li.addEventListener("click", ev => {
+                if (ev.target.parentNode.nextSibling.tagName === "UL") {
+                    ev.target.parentNode.nextSibling.childNodes.forEach(el => {
+                        if (el.classList.contains("hidden")) {
+                            el.classList.remove("hidden");
+                            el.classList.add("visible");
+                        } else {
+                            el.classList.remove("visible");
+                            el.classList.add("hidden")
+                        }
+                    })
+                }
+            })
         })
 
         return parentNode;
@@ -49,10 +65,19 @@ class ReportNavigator {
 
     static init() {
         const TOPNAV = document.getElementById('topnav');
+        const MAIN_REPORT = document.getElementById('container');
+        MAIN_REPORT.setAttribute('class', 'with-menu')
 
-        let topContent = document.createElement('a');
-        topContent.setAttribute('class', 'active');
-        topContent.innerHTML = 'Contents';
+        let menu = document.createElement('a');
+        menu.setAttribute('class', 'active');
+        for (let i = 0; i < 3; i++) {
+            let burger = document.createElement('div');
+            burger.style.width = "10px";
+            burger.style.height = "2px";
+            burger.style.background = "white";
+            burger.style.marginBottom = "2px";
+            menu.appendChild(burger);
+        }
 
         /** Add input field for searching substrings over report */
         let input = document.createElement('input');
@@ -96,7 +121,7 @@ class ReportNavigator {
             }
         });
 
-        TOPNAV.appendChild(topContent);
+        TOPNAV.appendChild(menu);
         TOPNAV.appendChild(input);
         TOPNAV.appendChild(select);
 
@@ -109,17 +134,19 @@ class ReportNavigator {
         NAVIGATOR.appendChild(ul);
 
         /** Add event listener to hide and show navigator */
-        topContent.addEventListener('click', event => {
-            if (ul.classList.contains('hidden')) {
-                ul.setAttribute('class', 'active');
-                topContent.setAttribute('class', 'active');
+        menu.addEventListener('click', event => {
+            if (menu.classList.contains('active')) {
+                menu.setAttribute('class', '')
+                MAIN_REPORT.style.left = "0";
+                NAVIGATOR.style.width = "0";
             } else {
-                ul.setAttribute('class', 'hidden');
-                topContent.removeAttribute('class');
+                menu.setAttribute('class', 'active')
+                MAIN_REPORT.style.left = "25%";
+                NAVIGATOR.style.width = "25%";
             }
         })
         document.querySelector('body').appendChild(NAVIGATOR);
-        ReportNavigator.buildPageContent(data, ul);
+        ReportNavigator.buildPageContent(data, ul, "visible");
         /** Add some useful events */
         ReportNavigator.buildReportNavigator(NAVIGATOR);
     }
