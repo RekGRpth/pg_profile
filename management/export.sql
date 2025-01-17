@@ -577,6 +577,7 @@ BEGIN
     DELETE FROM last_stat_tablespaces WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_user_functions WHERE server_id=sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_wal WHERE server_id = sserver_id AND sample_id != s_id;
+    DELETE FROM last_extension_versions WHERE server_id = sserver_id AND sample_id != s_id;
   END LOOP; --over import servers
   SET CONSTRAINTS ALL IMMEDIATE;
   RETURN tot_processed;
@@ -1600,7 +1601,7 @@ BEGIN
               dr.temp_blks_read,
               dr.temp_blks_written,
               dr.blk_read_time as shared_blk_read_time,
-              dr.blk_write_time as  as shared_blk_write_time,
+              dr.blk_write_time as shared_blk_write_time,
               dr.wal_records,
               dr.wal_fpi,
               dr.wal_bytes,
@@ -3264,7 +3265,7 @@ BEGIN
           LOOP
             FETCH data INTO datarow;
             EXIT WHEN NOT FOUND;
-            INSERT INTO last_stat_statements (server_id, sample_id, userid, username, datid, queryid, 
+            INSERT INTO last_stat_statements (server_id, sample_id, userid, username, datid, queryid,
               queryid_md5, plans, total_plan_time, min_plan_time, max_plan_time, mean_plan_time,
               stddev_plan_time, calls, total_exec_time, min_exec_time, max_exec_time,
               mean_exec_time, stddev_exec_time, rows, shared_blks_hit, shared_blks_read,
@@ -3401,7 +3402,7 @@ BEGIN
           LOOP
             FETCH data INTO datarow;
             EXIT WHEN NOT FOUND;
-            INSERT INTO last_stat_statements (server_id, sample_id, userid, username, datid, queryid, 
+            INSERT INTO last_stat_statements (server_id, sample_id, userid, username, datid, queryid,
               queryid_md5, plans, total_plan_time, min_plan_time, max_plan_time, mean_plan_time,
               stddev_plan_time, calls, total_exec_time, min_exec_time, max_exec_time,
               mean_exec_time, stddev_exec_time, rows, shared_blks_hit, shared_blks_read,
@@ -3624,6 +3625,66 @@ BEGIN
             ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
             (s_ctl.server_id, s_ctl.sample_id)
         ON CONFLICT DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
+    WHEN 'extension_versions' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO extension_versions(server_id,datid,extname,first_seen,last_sample_id,extversion)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer AS server_id,
+          dr.datid,
+          dr.extname,
+          dr.first_seen,
+          dr.last_sample_id,
+          dr.extversion
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id        integer,
+            datid            oid,
+            extname          name,
+            first_seen       timestamp(0) with time zone,
+            last_sample_id   integer,
+            extversion       text
+          )
+        JOIN
+          servers s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer) =
+            (s_ctl.server_id)
+        ON CONFLICT ON CONSTRAINT pk_extension_versions DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
+    WHEN 'last_extension_versions' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO last_extension_versions(server_id, datid, sample_id, extname, extversion)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer AS server_id,
+          dr.datid,
+          dr.sample_id,
+          dr.extname,
+          dr.extversion
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id        integer,
+            datid            oid,
+            sample_id        integer,
+            extname          name,
+            extversion       text
+          )
+        JOIN
+          servers s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer) =
+            (s_ctl.server_id)
+        ON CONFLICT ON CONSTRAINT pk_last_extension_versions DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
         IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN

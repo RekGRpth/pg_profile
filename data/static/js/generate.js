@@ -50,28 +50,32 @@ class BaseSection {
 
                 if (newBlock.header.source) {
                     newBlock.data = data.datasets[newBlock.header.source];
-
-                    /** Filtering data if expected */
-                    if (newBlock.header.filter) {
-                        newBlock.data = Utilities.filter(newBlock.data, newBlock.header.filter);
-                    }
-                    /** Ordering data if expected */
-                    if (newBlock.header.ordering) {
-                        let direction = 1;
-                        let key = newBlock.header.ordering;
-
-                        if (newBlock.header.ordering.startsWith('-')) {
-                            direction = -1;
-                            key = newBlock.header.ordering.slice(1);
-                        }
-                        newBlock.data = Utilities.sort(newBlock.data, key, direction);
-                    }
-                    /** Limiting data if expected */
-                    if (newBlock.header.limit) {
-                        newBlock.data = Utilities.limit(newBlock.data, Number.parseInt(data.properties[newBlock.header.limit]));
-                    }
                 } else {
                     newBlock.data = this.section.data[i];
+                }
+
+                if (!newBlock.data) {
+                    console.log(newBlock);
+                    continue;
+                }
+                /** Filtering data if expected */
+                if (newBlock.header.filter) {
+                    newBlock.data = Utilities.filter(newBlock.data, newBlock.header.filter);
+                }
+                /** Ordering data if expected */
+                if (newBlock.header.ordering) {
+                    let direction = 1;
+                    let key = newBlock.header.ordering;
+
+                    if (newBlock.header.ordering.startsWith('-')) {
+                        direction = -1;
+                        key = newBlock.header.ordering.slice(1);
+                    }
+                    newBlock.data = Utilities.sort(newBlock.data, key, direction);
+                }
+                /** Limiting data if expected */
+                if (newBlock.header.limit) {
+                    newBlock.data = Utilities.limit(newBlock.data, Number.parseInt(data.properties[newBlock.header.limit]));
                 }
 
                 /** Class of table determined by parameter 'class' in header (section_structure).
@@ -245,7 +249,11 @@ class BaseTable extends BaseSection {
         newCell.appendChild(p2);
 
         /** Copy query id into clipboard button */
-        let button = Copier.drawButton();
+        let button = Previewer.drawCopyButton();
+        button.addEventListener("click", event => {
+            navigator.clipboard.writeText(newRow.dataset.queryid).then(r => console.log(newRow.dataset.queryid))
+        });
+        
         button.classList.add('copyQueryId');
         p1.appendChild(button);
 
@@ -516,6 +524,20 @@ class BaseTable extends BaseSection {
      * @returns {HTMLTableElement} tag wit table
      */
     buildHeader() {
+        // Three-level headers building
+        if (this.section.header.class) {
+            /** Checking if the header has unique class */
+            let classList = this.section.header.class.split(' ');
+            for (let i = 0; i < classList.length; i++) {
+
+                /** If true, build header by special method */
+                let klass = classList[i].trim();
+                if (BaseTable.uniqueHeaders[klass]) {
+                    return BaseTable.uniqueHeaders[klass](this.table, this.section.header);
+                }
+            }
+        };
+
         /** Collecting header into matrix */
         let headerMatrix = BaseTable.collectHeader(this.section.header, 0, null);
 
@@ -659,20 +681,15 @@ class HorizontalTable extends BaseTable {
      * @param row Object with data for populating html table
      * @param dataAttrs Object with attr name for setting data-attrs in <tr> tag
      */
-    static setDataAttrs(newRow, row, dataAttrs) {
+    static setDataAttrs(newRow, row) {
         /** Collecting search array */
         let searchArray = [];
-
-        /** Set attributes for strings highlighting */
-        if (dataAttrs) {
-            dataAttrs.forEach(attr => {
-                newRow.setAttribute(`data-${attr.id}`, row[attr.id]);
-                searchArray.push(row[attr.id]);
-            })
-            /** Set data-search attribute */
-            let searchString = Object.values(searchArray).join(' ').replace(/\s\s+/g, ' ');
-            newRow.setAttribute('data-all', searchString);
-        }
+        Object.keys(row).forEach(attr => {
+            newRow.setAttribute(`data-${attr}`, row[attr]);
+            searchArray.push(row[attr]);
+        });
+        let searchString = Object.values(searchArray).join(' ').replace(/\s\s+/g, ' ');
+        newRow.setAttribute('data-all', searchString);
     }
 
     static setId(newRow, row, dataAttrs) {
@@ -731,12 +748,8 @@ class HorizontalTable extends BaseTable {
                     newRow.classList.add('grey');
                 }
                 /** Set data-attributes */
-                if (highlightRowAttrs) {
-                    HorizontalTable.setDataAttrs(newRow, row, highlightRowAttrs);
-                }
-                if (previewQueryAttrs) {
-                    HorizontalTable.setDataAttrs(newRow, row, previewQueryAttrs);
-                }
+                HorizontalTable.setDataAttrs(newRow, row);
+                /** Set id for row anchor (scroll feature) */
                 if (scrollQueryAttrs) {
                     HorizontalTable.setId(newRow, row, scrollQueryAttrs);
                 }

@@ -148,7 +148,20 @@ BEGIN
           SELECT sum(checksum_failures) > 0
           FROM sample_stat_database
           WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
-          ), false)
+          ), false),
+        'extension_versions', (
+          SELECT count(*) > 0
+          FROM v_extension_versions
+          WHERE server_id = sserver_id AND
+            sample_id BETWEEN start1_id AND end1_id
+          ),
+        'extension_versions_show_date_columns', (
+          SELECT count(*) > 0
+          FROM v_extension_versions
+          WHERE server_id = sserver_id AND
+            sample_id BETWEEN start1_id AND end1_id AND
+            (first_seen > start1_time OR last_sample_id < end1_id)
+          )
       ),
       'report_properties',jsonb_build_object(
         'interval_duration_sec',
@@ -374,7 +387,22 @@ BEGIN
           WHERE server_id = sserver_id AND
             (sample_id BETWEEN start1_id + 1 AND end1_id OR
             sample_id BETWEEN start2_id + 1 AND end2_id)
-          ), false)
+          ), false),
+        'extension_versions', (
+          SELECT count(*) > 0
+          FROM v_extension_versions
+          WHERE server_id = sserver_id AND
+            (sample_id BETWEEN start1_id AND end1_id OR
+            sample_id BETWEEN start2_id AND end2_id)
+          ),
+        'extension_versions_show_date_columns', (
+          SELECT count(*) > 0
+          FROM v_extension_versions
+          WHERE server_id = sserver_id AND
+            (sample_id BETWEEN start1_id AND end1_id OR
+            sample_id BETWEEN start2_id AND end2_id) AND
+            (first_seen > least(start1_time, start2_time) OR last_sample_id < greatest(end1_id, end2_id))
+          )
       ),
       'report_properties', jsonb_build_object(
         'interval1_duration_sec',
@@ -565,7 +593,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE FUNCTION get_report_datasets(IN report_context jsonb, IN sserver_id integer)
+CREATE FUNCTION get_report_datasets(IN report_context jsonb, IN sserver_id integer, IN db_exclude name[] = NULL)
 RETURNS jsonb SET search_path=@extschema@ AS $$
 DECLARE
   start1_id   integer = (report_context #>> '{report_properties,start1_id}')::integer;
@@ -945,8 +973,10 @@ BEGIN
             entry(
               userid  oid,
               datid   oid,
+              dbname	name,
               queryid bigint
             )
+        WHERE dbname <> ALL (db_exclude) OR db_exclude IS NULL
         )
       LOOP
         queries_set := queries_set || jsonb_build_object(
@@ -998,6 +1028,18 @@ BEGIN
         dataset := dataset || to_jsonb(r_result);
       END LOOP;
       datasets := jsonb_set(datasets, '{act_queries}', dataset);
+    END IF;
+
+    -- extension versions
+    IF (report_context #>> '{report_features,extension_versions}')::boolean THEN
+      dataset := '[]'::jsonb;
+      FOR r_result IN (
+          SELECT *
+          FROM extension_versions_format(sserver_id, start1_id, end1_id)
+        ) LOOP
+        dataset := dataset || to_jsonb(r_result);
+      END LOOP;
+      datasets := jsonb_set(datasets, '{extension_versions}', dataset);
     END IF;
 
   ELSIF num_nulls(start1_id, end1_id, start2_id, end2_id) = 0 THEN
@@ -1373,8 +1415,10 @@ BEGIN
             entry(
               userid  oid,
               datid   oid,
+              dbname 	name,
               queryid bigint
             )
+        WHERE dbname <> ALL (db_exclude) OR db_exclude IS NULL
         )
       LOOP
         queries_set := queries_set || jsonb_build_object(
@@ -1430,7 +1474,33 @@ BEGIN
       datasets := jsonb_set(datasets, '{act_queries}', dataset);
     END IF;
 
+    -- extension versions
+    IF (report_context #>> '{report_features,extension_versions}')::boolean THEN
+      dataset := '[]'::jsonb;
+      FOR r_result IN (
+          SELECT *
+          FROM extension_versions_format(sserver_id, start1_id, end1_id, start2_id, end2_id)
+        ) LOOP
+        dataset := dataset || to_jsonb(r_result);
+      END LOOP;
+      datasets := jsonb_set(datasets, '{extension_versions}', dataset);
+    END IF;
+
   END IF;
+
+	IF db_exclude IS NOT NULL THEN
+		SELECT jsonb_object_agg(dts.key, dts.value)
+    INTO datasets
+		FROM (
+			SELECT dt.key, jsonb_agg(dt.value) AS value
+			FROM (
+				SELECT d.key, jsonb_array_elements(d.value) AS value
+				FROM jsonb_each(datasets) d) dt
+				WHERE NOT (dt.value ->> 'dbname' IS NOT NULL AND dt.value ->> 'dbname' = ANY (db_exclude))
+				GROUP BY key
+			) dts;
+	END IF;
+
   RETURN datasets;
 END;
 $$ LANGUAGE plpgsql;
