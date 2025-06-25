@@ -57,7 +57,6 @@ class Utilities {
         rowsForSearch.forEach(row => {
             row.style.display = '';
         })
-        this.getInputField().value = '';
     }
 
     static searchQueryWithStatistics(rowsForSearch, keyword) {
@@ -74,6 +73,22 @@ class Utilities {
                 }
             }
         })
+    }
+
+    static preprocessQueryString(queryString, limit) {
+        let etc = '';
+        queryString = queryString.split(',').join(', ');
+        queryString = queryString.split('+').join(' + ');
+        queryString = queryString.split('/').join(' / ');
+
+        if (limit) {
+            if (queryString.length > limit) {
+                queryString = queryString.substring(0, limit);
+                etc = ' ...'
+            }
+        }
+
+        return `${queryString}${etc}`
     }
 
     static searchQueryText(keyword) {

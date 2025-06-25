@@ -152,6 +152,7 @@ BEGIN
                 CASE $5
                   WHEN TRUE THEN
                     encode(sha224(convert_to(rows.query, 'UTF8')), 'base64')
+                    || ', Query length: '|| length(rows.query)::text
                   ELSE rows.query
                 END AS query,
                 last_sample_id
@@ -175,6 +176,7 @@ BEGIN
                 CASE $5
                   WHEN TRUE THEN
                     encode(sha224(convert_to(rows.act_query, 'UTF8')), 'base64')
+                    || ', Query length: '|| length(rows.act_query)::text
                   ELSE rows.act_query
                 END AS act_query,
                 last_sample_id
@@ -299,7 +301,8 @@ BEGIN
       imp_srv.last_sample_id      imp_server_last_sample_id,
       imp_srv.size_smp_wnd_start  imp_size_smp_wnd_start,
       imp_srv.size_smp_wnd_dur    imp_size_smp_wnd_dur,
-      imp_srv.size_smp_interval   imp_size_smp_interval
+      imp_srv.size_smp_interval   imp_size_smp_interval,
+      imp_srv.srv_settings        imp_srv_settings
     FROM
       jsonb_to_recordset($1) as
         imp_srv(
@@ -314,7 +317,8 @@ BEGIN
           last_sample_id      integer,
           size_smp_wnd_start  time with time zone,
           size_smp_wnd_dur    interval hour to second,
-          size_smp_interval   interval day to minute
+          size_smp_interval   interval day to minute,
+          srv_settings        jsonb
         )
       JOIN %s d ON
         (d.section_id = $2 AND d.row_data->>'name' = 'system_identifier'
@@ -356,7 +360,8 @@ BEGIN
           last_sample_id,
           size_smp_wnd_start,
           size_smp_wnd_dur,
-          size_smp_interval
+          size_smp_interval,
+          srv_settings
         ) = (
           r_result.imp_server_db_exclude,
           r_result.imp_server_connstr,
@@ -364,7 +369,8 @@ BEGIN
           r_result.imp_server_last_sample_id,
           r_result.imp_size_smp_wnd_start,
           r_result.imp_size_smp_wnd_dur,
-          r_result.imp_size_smp_interval
+          r_result.imp_size_smp_interval,
+          r_result.imp_srv_settings
         )
       WHERE server_id = r_result.local_server_id
         AND last_sample_id < r_result.imp_server_last_sample_id;
@@ -387,7 +393,8 @@ BEGIN
         last_sample_id,
         size_smp_wnd_start,
         size_smp_wnd_dur,
-        size_smp_interval)
+        size_smp_interval,
+        srv_settings)
       VALUES (
         r_result.imp_server_name,
         r_result.imp_server_description,
@@ -399,7 +406,8 @@ BEGIN
         r_result.imp_server_last_sample_id,
         r_result.imp_size_smp_wnd_start,
         r_result.imp_size_smp_wnd_dur,
-        r_result.imp_size_smp_interval
+        r_result.imp_size_smp_interval,
+        r_result.imp_srv_settings
       )
       RETURNING server_id INTO new_server_id;
       tmp_srv_map := jsonb_set(
@@ -480,6 +488,11 @@ BEGIN
 
         IF func_processed = -1 THEN
           RAISE 'No import method for table %', r_result.relname;
+        END IF;
+
+        IF func_processed > 0 THEN
+          RAISE NOTICE 'Analyzing table %', r_result.relname;
+          EXECUTE format('ANALYZE %I', r_result.relname);
         END IF;
 
         RAISE NOTICE 'Finished processing %',
@@ -590,7 +603,7 @@ COMMENT ON FUNCTION import_data(regclass, text) IS
 CREATE FUNCTION import_section_data_profile(IN data refcursor, IN imp_table_name name, IN srv_map jsonb,
   IN import_meta jsonb, IN versions_array text[],
   OUT rows_processed bigint, OUT new_import_meta jsonb)
-SET search_path=profile AS $$
+SET search_path=@extschema@ AS $$
 DECLARE
   datarow          record;
   rowcnt           bigint = 0;
@@ -2916,7 +2929,8 @@ BEGIN
           autovacuum_count,analyze_count,autoanalyze_count,heap_blks_read,heap_blks_hit,
           idx_blks_read,idx_blks_hit,toast_blks_read,toast_blks_hit,tidx_blks_read,
           tidx_blks_hit,relsize,relsize_diff,tablespaceid,reltoastrelid,relkind,in_sample,
-          relpages_bytes,relpages_bytes_diff,last_seq_scan,last_idx_scan,n_tup_newpage_upd)
+          relpages_bytes,relpages_bytes_diff,last_seq_scan,last_idx_scan,n_tup_newpage_upd,
+          reloptions)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -2962,7 +2976,8 @@ BEGIN
           dr.relpages_bytes_diff,
           dr.last_seq_scan,
           dr.last_idx_scan,
-          dr.n_tup_newpage_upd
+          dr.n_tup_newpage_upd,
+          dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
           server_id            integer,
           sample_id            integer,
@@ -3008,7 +3023,8 @@ BEGIN
           relpages_bytes_diff  bigint,
           last_seq_scan        timestamp with time zone,
           last_idx_scan        timestamp with time zone,
-          n_tup_newpage_upd    bigint
+          n_tup_newpage_upd    bigint,
+          reloptions           jsonb
           )
         JOIN
           samples s_ctl ON
@@ -3028,7 +3044,7 @@ BEGIN
         INSERT INTO last_stat_indexes (server_id,sample_id,datid,relid,indexrelid,
           schemaname,relname,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch,
           idx_blks_read,idx_blks_hit,relsize,relsize_diff,tablespaceid,indisunique,
-          in_sample,relpages_bytes,relpages_bytes_diff,last_idx_scan)
+          in_sample,relpages_bytes,relpages_bytes_diff,last_idx_scan,reloptions)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -3050,7 +3066,8 @@ BEGIN
           COALESCE(dr.in_sample, false),
           dr.relpages_bytes,
           dr.relpages_bytes_diff,
-          dr.last_idx_scan
+          dr.last_idx_scan,
+          dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
           server_id      integer,
           sample_id      integer,
@@ -3072,7 +3089,8 @@ BEGIN
           in_sample      boolean,
           relpages_bytes bigint,
           relpages_bytes_diff bigint,
-          last_idx_scan  timestamp with time zone
+          last_idx_scan  timestamp with time zone,
+          reloptions     jsonb
           )
         JOIN
           samples s_ctl ON
@@ -3691,6 +3709,70 @@ BEGIN
           RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
         END IF;
       END LOOP; -- over data rows
+    WHEN 'table_storage_parameters' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO table_storage_parameters(server_id,datid,relid,first_seen,last_sample_id,reloptions)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer AS server_id,
+          dr.datid,
+          dr.relid,
+          dr.first_seen,
+          dr.last_sample_id,
+          dr.reloptions
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id        integer,
+            datid            oid,
+            relid            oid,
+            first_seen       timestamp(0) with time zone,
+            last_sample_id   integer,
+            reloptions       jsonb
+          )
+        JOIN
+          servers s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer) =
+            (s_ctl.server_id)
+        ON CONFLICT ON CONSTRAINT pk_table_storage_parameters DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
+    WHEN 'index_storage_parameters' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO index_storage_parameters(server_id,datid,relid,indexrelid,first_seen,last_sample_id,reloptions)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer AS server_id,
+          dr.datid,
+          dr.relid,
+          dr.indexrelid,
+          dr.first_seen,
+          dr.last_sample_id,
+          dr.reloptions
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id        integer,
+            datid            oid,
+            relid            oid,
+            indexrelid       oid,
+            first_seen       timestamp(0) with time zone,
+            last_sample_id   integer,
+            reloptions       jsonb
+          )
+        JOIN
+          servers s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer) =
+            (s_ctl.server_id)
+        ON CONFLICT ON CONSTRAINT pk_index_storage_parameters DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
     ELSE
       rows_processed := -1;
       RETURN; -- table not found
@@ -3703,7 +3785,7 @@ $$ LANGUAGE plpgsql;
 CREATE FUNCTION import_section_data_subsample(IN data refcursor, IN imp_table_name name, IN srv_map jsonb,
   IN import_meta jsonb, IN versions_array text[],
   OUT rows_processed bigint, OUT new_import_meta jsonb)
-SET search_path=profile AS $$
+SET search_path=@extschema@ AS $$
 DECLARE
   datarow          record;
   rowcnt           bigint = 0;
