@@ -14,8 +14,8 @@ Any time you take a sample, _pg_stat_statements_reset()_ will be called, ensurin
 *pg_profile*, installed in one cluster is able to collect statistics from other clusters, called *servers*. You just need to define some servers, providing names and connection strings and make sure connection can be established to all databases of all defined servers. Now you can track statistics on your standbys from master, or from any other server. Once extension is installed, a *local* server is automatically created - this is a *server* for cluster where *pg_profile* resides.
 
 Report examples:
-* [Regular report from Postgres 17 database](https://zubkov-andrei.github.io/pg_profile/report_examples/pg17.html)
-* [Differential report from Postgres 17 database](https://zubkov-andrei.github.io/pg_profile/report_examples/pg17_diff.html)
+* [Regular report for Postgres 18 database](https://zubkov-andrei.github.io/pg_profile/report_examples/pg18.html)
+* [Differential report for Postgres 18 database](https://zubkov-andrei.github.io/pg_profile/report_examples/pg18_diff.html)
 
 ## Grafana dashboard ##
 There are some grafana dashboards provided in the grafana folder of the project. They have separate [documentation](grafana/README.md).
@@ -51,6 +51,7 @@ If CPU and filesystem statistics is needed, consider installing *pg_stat_kcache*
 
 ## Supported versions
 ## PostgreSQL
+* **18** supported since version 4.10
 * **17** supported since version 4.7
 * **16** supported since version 4.3
 * **15** supported since version 4.1
@@ -58,11 +59,13 @@ If CPU and filesystem statistics is needed, consider installing *pg_stat_kcache*
 * **13** supported since version 0.1.3
 * **12** supported since version 0.1.0
 ## _pg_stat_statements_ extension
+* **1.12** supported since version 4.10
 * **1.11** supported since version 4.7
 * **1.10** supported since version 4.1
 * **1.9** supported since version 4.0
 * **1.8** supported since version 0.1.2
 ## _pg_stat_kcache_ extension
+* **2.3.1** supported since version 4.10
 * **2.3.0** supported since version 4.7
 * **2.2.3** supported since version 4.4
 * **2.2.2** supported since version 4.3
