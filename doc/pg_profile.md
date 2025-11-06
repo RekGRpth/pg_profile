@@ -144,7 +144,7 @@ Any postgres user can build a *pg_profile* report. The minimal privileges needed
 ## Using pg_profile
 ### Setting extension parameters
 You can define extension parameters in *postgresql.conf*. Default values:
-* _pg_profile.topn = 20_ - Number of top objects (statements, relations, etc.), to be reported in each sorted report table. Also, this parameter affects size of a sample - the more objects you want to appear in your report, the more objects we need to keep in a sample.
+* _pg_profile.topn = 20_ - Number of top objects (statements, relations, etc.), to be reported in each sorted report table. Also, this parameter affects size of a sample - the more objects you want to appear in your report, the more objects we need to keep in a sample. The maximum value  is 100. Any greater values  will be lowered to 100.
 * _pg_profile.max_sample_age = 7_ - Retention time of samples in days. Samples, aged _pg_profile.max_sample_age_ days and more will be automatically deleted on next _take_sample()_ call.
 * _pg_profile.track_sample_timings = off_ - when this parameter is on, _pg_profile_ will track detailed sample taking timings.
 * _pg_profile.max_query_length = 20000_ - query length limit for reports. All queries in a report will be truncated to this length. This setting does not affect query text collection - during a sample full query texts are collected, thus can be obtained.
@@ -527,7 +527,8 @@ By default *export_data()* function will export all samples of all configured se
 * **export_data([server name, [min_sample_id integer,] [max_sample_id integer]] [, obfuscate_queries boolean])** - export collected data
   * *server* is a server name. All servers is assumed if omitted
   * *min_sample_id* and *max_sample_id* - export bounding sample identifiers (inclusive). Null value of *min_sample_id* bound cause export of all samples till *max_sample_id*, and null value of *max_sample_id* cause export of all samples since *min_sample_id*.
-  * *obfuscate_queries* - use this parameter only when you want to hide query texts - they will be exported as MD5 hash.
+  * *obfuscate_queries* - use this parameter only when you want to hide query texts - they will be exported as MD5 hash. Also server connection strings will be excluded from dump.
+  * *hide_connstr* - setting this parameter will exclude server connection strings from export.
 
 #### Data import
 Data can be imported from local table only, thus previously exported data is need to be loaded first. In our case with *copy* command:
@@ -791,10 +792,13 @@ This table contains data from *pg_stat_bgwriter* and *pg_stat_checkpointer* view
 
 * *Scheduled checkpoints* - total number of checkpoints, completed on schedule due to *checkpoint_timeout* parameter (*checkpoints_timed* field)
 * *Requested checkpoints* - total number of other checkpoints: due to values of *max_wal_size*, *archive_timeout* and CHECKPOINT commands (*checkpoints_req* field)
-* *Checkpoints done* - number of restartpoints that have been performed
-* *Checkpoint write time (s)* - total time spent writing checkpoints in seconds (*checkpoint_write_time* field)
-* *Checkpoint sync time (s)* - total time spent syncing checkpoints in seconds (*checkpoint_sync_time* field)
-* *Checkpoints buffers written* - total number of buffers, written by checkpointer (*buffers_checkpoint* field)
+* *Checkpoints done* - number of checkpoints that have been performed
+* *Scheduled restartpoints* - number of scheduled restartpoints due to timeout or after a failed attempt to perform it (*restartpoints_timed* field)
+* *Requested restartpoints* - number of requested restartpoints if any (*restartpoints_req* field)
+* *Restartpoints done* - number of restartpoints that have been performed if any (*restartpoints_done* field)
+* *Checkpoint write time (s)* - total time spent writing checkpoints and restartpoints in seconds (*checkpoint_write_time* field)
+* *Checkpoint sync time (s)* - total time spent syncing checkpoints and restartpoints in seconds (*checkpoint_sync_time* field)
+* *Checkpoints buffers written* - total number of shared buffers written during checkpoints and restartpoints (*buffers_checkpoint* field)
 * *SLRU buffers written by checkpoint* - number of SLRU buffers written during checkpoints and restartpoints
 * *Background buffers written* - total number of buffers, written by background writer process (*buffers_clean* field)
 * *Backend buffers written* - total number of buffers, written by backends (*buffers_backend* field). Won't shown since PostgreSQL 17

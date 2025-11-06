@@ -2,7 +2,8 @@
 
 DROP FUNCTION IF EXISTS export_data(name, integer, integer, boolean);
 CREATE FUNCTION export_data(IN server_name name = NULL, IN min_sample_id integer = NULL,
-  IN max_sample_id integer = NULL, IN obfuscate_queries boolean = FALSE)
+  IN max_sample_id integer = NULL, IN obfuscate_queries boolean = FALSE,
+  IN hide_connstr boolean = FALSE)
 RETURNS TABLE(
     section_id  bigint,
     row_data    json
@@ -193,6 +194,35 @@ BEGIN
           min_sample_id,
           max_sample_id,
           obfuscate_queries;
+      WHEN r_result.relname = 'servers' THEN
+        RETURN QUERY EXECUTE format(
+            $sql$SELECT $1,row_to_json(dt) FROM
+              (SELECT
+                rows.server_id,
+                rows.server_name,
+                rows.server_description,
+                rows.server_created,
+                rows.db_exclude,
+                rows.enabled,
+                CASE $3 OR $4
+                  WHEN TRUE THEN
+                    NULL
+                  ELSE rows.connstr
+                END AS connstr,
+                rows.max_sample_age,
+                rows.last_sample_id,
+                rows.size_smp_wnd_start,
+                rows.size_smp_wnd_dur,
+                rows.size_smp_interval,
+                rows.srv_settings
+               FROM %I AS rows WHERE $2 IS NULL OR server_id = $2) dt$sql$,
+            r_result.relname
+          )
+        USING
+          section_counter,
+          sserver_id,
+          obfuscate_queries,
+          hide_connstr;
       ELSE
         RETURN QUERY EXECUTE format(
             $q$SELECT $1,row_to_json(dt) FROM (SELECT * FROM %I WHERE $2 IS NULL OR $2 = server_id) dt$q$,
@@ -207,7 +237,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION export_data(IN server_name name, IN min_sample_id integer,
-  IN max_sample_id integer, IN obfuscate_queries boolean) IS 'Export collected data as a table';
+  IN max_sample_id integer, IN obfuscate_queries boolean,
+  IN hide_connstr boolean) IS 'Export collected data as a table';
 
 CREATE FUNCTION import_data(data regclass, server_name_prefix text = NULL) RETURNS bigint
 SET search_path=@extschema@ AS $$
@@ -442,6 +473,11 @@ BEGIN
 
   /* Import tables data */
 
+  CREATE TEMP TABLE import_sections_map (
+       map_key text PRIMARY KEY,
+       map_value jsonb
+  );
+
   SET CONSTRAINTS ALL DEFERRED;
   import_stage := 0;
   WHILE import_stage < 3 LOOP
@@ -507,6 +543,8 @@ BEGIN
     END LOOP; -- over dump tables
     import_stage := import_stage + 1;
   END LOOP; -- over import stages
+
+  DROP TABLE import_sections_map;
 
   -- Finalize import
   FOR r_result IN (SELECT * FROM jsonb_each(tmp_srv_map)) LOOP
@@ -608,7 +646,6 @@ DECLARE
   datarow          record;
   rowcnt           bigint = 0;
   row_proc         bigint = 0;
-  section_meta     jsonb;
 BEGIN
   new_import_meta := import_meta;
   CASE imp_table_name
@@ -1114,7 +1151,6 @@ BEGIN
             imp_table_name, import_meta ->> 'extension', import_meta ->> 'version');
       END CASE; -- over import versions
     WHEN 'tables_list' THEN
-      section_meta := '{}'::jsonb;
       LOOP
         FETCH data INTO datarow;
         EXIT WHEN NOT FOUND;
@@ -1122,13 +1158,16 @@ BEGIN
         * binding here. We'll need it in further insert into sample_stat_tables
         */
         IF datarow.row_data #> ARRAY['reltoastrelid'] IS NOT NULL THEN
-          section_meta := jsonb_set(section_meta,
-            ARRAY[format('%s.%s',
+          INSERT INTO import_sections_map (map_key, map_value)
+          VALUES (
+            format('%s.%s',
               datarow.row_data #>> ARRAY['server_id'],
-              datarow.row_data #>> ARRAY['relid'])
-            ],
-            jsonb_build_object('reltoastrelid', datarow.row_data #> ARRAY['reltoastrelid'])
-          );
+              datarow.row_data #>> ARRAY['relid']
+            ),
+            jsonb_build_object('reltoastrelid',
+              datarow.row_data #> ARRAY['reltoastrelid']
+            )
+          ) ON CONFLICT DO NOTHING;
         END IF;
         INSERT INTO tables_list(server_id,last_sample_id,datid,relid,relkind,
           schemaname,relname)
@@ -1163,11 +1202,15 @@ BEGIN
         END IF;
       END LOOP; -- over data rows
       -- Return collected relations mapping
-      IF section_meta != '{}'::jsonb THEN
-        new_import_meta := jsonb_set(new_import_meta, '{relations_map}', section_meta);
+      IF (SELECT count(*) > 0 FROM import_sections_map) THEN
+        SELECT jsonb_set(new_import_meta, '{relations_map}',
+          jsonb_object_agg(map_key, map_value))
+          INTO new_import_meta
+        FROM
+          import_sections_map;
+        TRUNCATE import_sections_map;
       END IF;
     WHEN 'stmt_list' THEN
-      section_meta := '{}'::jsonb;
       CASE
         WHEN array_position(versions_array, '0.3.2:pg_profile') >= 1 THEN
           LOOP
@@ -1199,17 +1242,17 @@ BEGIN
           LOOP
             FETCH data INTO datarow;
             EXIT WHEN NOT FOUND;
-            IF section_meta #> ARRAY[datarow.row_data->>'queryid_md5'] IS NULL THEN
-              section_meta := jsonb_set(section_meta,
-                ARRAY[datarow.row_data->>'queryid_md5'], '{}'::jsonb);
-            END IF;
-            section_meta := jsonb_set(section_meta,
-              ARRAY[datarow.row_data->>'queryid_md5', datarow.row_data->>'server_id'],
+            INSERT INTO import_sections_map (map_key, map_value)
+            VALUES (
+              format('%s.%s',
+                datarow.row_data->>'queryid_md5',
+                datarow.row_data->>'server_id'
+              ),
               to_jsonb(left(encode(sha224(convert_to(
                 datarow.row_data->>'query',
                 'UTF8')
               ), 'base64'), 32))
-            );
+            ) ON CONFLICT DO NOTHING;
             INSERT INTO stmt_list(server_id, last_sample_id, queryid_md5, query)
             SELECT
               (srv_map ->> dr.server_id::text)::integer,
@@ -1229,7 +1272,14 @@ BEGIN
             END IF;
           END LOOP; -- over data rows
           -- Return queryid mapping
-          new_import_meta := jsonb_set(new_import_meta, '{queryid_map}', section_meta);
+          IF (SELECT count(*) > 0 FROM import_sections_map) THEN
+            SELECT jsonb_set(new_import_meta, '{queryid_map}',
+              jsonb_object_agg(map_key, map_value))
+              INTO new_import_meta
+            FROM
+              import_sections_map;
+            TRUNCATE import_sections_map;
+          END IF;
         ELSE
           RAISE '%', format('[import %s]: Unsupported extension version: %s %s',
             imp_table_name, import_meta ->> 'extension', import_meta ->> 'version');
@@ -1275,17 +1325,19 @@ BEGIN
       LOOP
         FETCH data INTO datarow;
         EXIT WHEN NOT FOUND;
-        INSERT INTO sample_timings(server_id, sample_id, event, time_spent)
+        INSERT INTO sample_timings(server_id, sample_id, event, exec_point, event_ts)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
           dr.event,
-          dr.time_spent
+          dr.exec_point,
+          dr.event_ts
         FROM json_to_record(datarow.row_data) AS dr(
             server_id      integer,
             sample_id      integer,
             event          text,
-            time_spent     interval minute to second(2)
+            exec_point     text,
+            event_ts       timestamp
           )
          JOIN
           samples s_ctl ON
@@ -1746,7 +1798,10 @@ BEGIN
               dr.datid,
               dr.queryid,
               CASE WHEN starts_with(versions_array[1], '0.3.1:') THEN
-                import_meta #>> ARRAY['queryid_map', dr.queryid_md5, dr.server_id::text]
+                import_meta #>> ARRAY[
+                   'queryid_map',
+                   format('%s.%s', dr.queryid_md5, dr.server_id::text)
+                ]
               ELSE
                 dr.queryid_md5
               END,
@@ -2410,11 +2465,11 @@ BEGIN
           dr.vacuum_count,
           dr.autovacuum_count,
           dr.analyze_count,
+          dr.autoanalyze_count,
           dr.total_vacuum_time,
           dr.total_autovacuum_time,
           dr.total_analyze_time,
           dr.total_autoanalyze_time,
-          dr.autoanalyze_count,
           dr.heap_blks_read,
           dr.heap_blks_hit,
           dr.idx_blks_read,
@@ -2669,7 +2724,10 @@ BEGIN
               dr.datid,
               dr.queryid,
               CASE WHEN starts_with(versions_array[1], '0.3.1:') THEN
-                import_meta #>> ARRAY[dr.queryid_md5, dr.server_id::text]
+                import_meta #>> ARRAY[
+                   'queryid_map',
+                   format('%s.%s', dr.queryid_md5, dr.server_id::text)
+                ]
               ELSE
                 dr.queryid_md5
               END,
@@ -3861,7 +3919,6 @@ DECLARE
   datarow          record;
   rowcnt           bigint = 0;
   row_proc         bigint = 0;
-  section_meta     jsonb;
 BEGIN
   new_import_meta := import_meta;
   CASE imp_table_name

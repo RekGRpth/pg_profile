@@ -1,5 +1,6 @@
 SET track_functions TO 'all';
 SET client_min_messages = WARNING;
+SET pg_profile.relsize_collect_mode = 'on';
 /* === Initialize some structures === */
 DROP TABLE IF EXISTS profile.grow_table;
 CREATE TABLE profile.grow_table (
@@ -77,7 +78,12 @@ SELECT gs.id, gs.id FROM generate_series(1,100) as gs(id);
 SELECT * FROM profile.dummy_func();
 /* Taking next sample */
 -- (sample 2)
-SELECT pg_sleep(1);
+
+\c
+SET track_functions TO 'all';
+SET client_min_messages = WARNING;
+SET pg_profile.relsize_collect_mode = 'on';
+
 SELECT server,result FROM profile.take_sample();
 
 /* Check collected data */
@@ -292,6 +298,10 @@ BEGIN
 		END IF;
 	END LOOP;
 END $$;
+
+-- Check for zero-length reports
+SELECT profile.get_report(1,1);
+SELECT profile.get_diffreport('local',1,2,2,2);
 
 /* Testing diffreport */
 -- (sample 3)

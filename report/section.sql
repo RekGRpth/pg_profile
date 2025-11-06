@@ -18,7 +18,19 @@ DECLARE
   start2_time_ut numeric;
   end2_time_ut   numeric;
 BEGIN
-    ASSERT num_nulls(start1_id, end1_id) = 0, 'At least first interval bounds is necessary';
+    IF num_nulls(start1_id, end1_id) > 0 THEN
+        RAISE 'At least first interval bounds is necessary';
+    END IF;
+
+    -- Check for zero-length intervals
+    IF num_nulls(start1_id, end1_id) = 0 AND start1_id >= end1_id THEN
+        RAISE 'First interval doesn''t have positive duration'
+            USING HINT = 'end1_id must be greater than start1_id';
+    END IF;
+    IF num_nulls(start2_id, end2_id) = 0 AND start2_id >= end2_id THEN
+        RAISE 'Second interval doesn''t have positive duration'
+            USING HINT = 'end2_id must be greater than start2_id';
+    END IF;
 
     -- Getting query length limit setting
     BEGIN
@@ -29,7 +41,7 @@ BEGIN
 
     -- Getting TopN setting
     BEGIN
-        topn := current_setting('{pg_profile}.topn')::integer;
+        topn := least(current_setting('{pg_profile}.topn')::integer, 100);
     EXCEPTION
         WHEN OTHERS THEN topn := 20;
     END;
@@ -210,7 +222,14 @@ BEGIN
           SELECT COUNT(*) > 0
           FROM sample_stat_cluster
           WHERE server_id = sserver_id AND
-            slru_checkpoint + checkpoints_done > 0 AND
+            greatest(slru_checkpoint, checkpoints_done) > 0 AND
+            sample_id BETWEEN start1_id AND end1_id
+          ),
+        'restartpoints', (
+          SELECT COUNT(*) > 0
+          FROM sample_stat_cluster
+          WHERE server_id = sserver_id AND
+            greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0 AND
             sample_id BETWEEN start1_id AND end1_id
         )
       ),
@@ -508,7 +527,16 @@ BEGIN
           SELECT COUNT(*) > 0
           FROM sample_stat_cluster
           WHERE server_id = sserver_id AND
-            slru_checkpoint + checkpoints_done > 0 AND (
+            greatest(slru_checkpoint, checkpoints_done) > 0 AND (
+              sample_id BETWEEN start1_id AND end1_id OR
+              sample_id BETWEEN start2_id AND end2_id
+            )
+          ),
+        'restartpoints', (
+          SELECT COUNT(*) > 0
+          FROM sample_stat_cluster
+          WHERE server_id = sserver_id AND
+            greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0 AND (
               sample_id BETWEEN start1_id AND end1_id OR
               sample_id BETWEEN start2_id AND end2_id
             )
