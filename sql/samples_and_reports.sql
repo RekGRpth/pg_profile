@@ -254,6 +254,10 @@ DECLARE
 	report_datasets jsonb := profile.get_report_datasets(report_context,server_id)::jsonb;
     queries boolean := profile.check_dataset_queries(report_datasets);
 	report_structure jsonb := profile.get_report_sections((report_sections #>> '{sections}')::jsonb, report_context::jsonb);
+	c_vac_tab        CURSOR FOR SELECT * FROM profile.sample_stat_vacuum_tables;
+	c_vac_tab_total  CURSOR FOR SELECT * FROM profile.sample_stat_vacuum_tables_total;
+	e_vac_tab        record;
+	e_vac_tab_total  record;
 	c_recursive CURSOR FOR
 		WITH RECURSIVE sel AS (
 			SELECT sect_id, parent_sect_id, feature
@@ -283,7 +287,23 @@ BEGIN
 			FOR dsname IN SELECT key FROM jsonb_each_text((report_structure #>> ARRAY[elem.sect_id::text, 'headers'])::jsonb)
 			LOOP
 				IF report_datasets #>> ARRAY[dsname] IS NULL
-				    THEN RAISE EXCEPTION 'ERROR: Mentioned dataset <%> does not exists', dsname;
+				    THEN
+                    IF dsname = 'top_vacuum_tables' THEN
+                        SET client_min_messages TO NOTICE;
+                        RAISE NOTICE 'Section <%> needs dataset <%>', elem.sect_id, dsname;
+                        RAISE NOTICE 'SELECT * FROM profile.sample_stat_vacuum_tables';
+                        FOR e_vac_tab IN c_vac_tab
+                        LOOP
+                            RAISE NOTICE '%', e_vac_tab;
+                        END LOOP;
+                        RAISE NOTICE 'SELECT * FROM profile.sample_stat_vacuum_tables_total';
+                        FOR e_vac_tab_total IN c_vac_tab_total
+                        LOOP
+                            RAISE NOTICE '%', e_vac_tab_total;
+                        END LOOP;
+                        RESET client_min_messages;
+                    END IF;
+				    RAISE EXCEPTION 'ERROR: Mentioned dataset <%> does not exists', dsname;
 				END IF;
 				IF jsonb_array_length((report_datasets #>> ARRAY[dsname])::jsonb) = 0
 				    THEN RAISE EXCEPTION 'ERROR: Mentioned dataset <%> does not have any objects', dsname;
