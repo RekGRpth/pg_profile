@@ -38,12 +38,14 @@ $$ LANGUAGE sql;
 CREATE FUNCTION wal_stats_reset_format(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
   sample_id       integer,
-  wal_stats_reset text
+  wal_stats_reset text,
+  ord_sample      integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
-    wal_stats_reset::text
+    wal_stats_reset::text,
+    row_number() OVER (ORDER BY sample_id ASC) AS ord_sample
   FROM
     wal_stats_reset(sserver_id, start_id, end_id)
 $$ LANGUAGE sql;
@@ -54,22 +56,30 @@ CREATE FUNCTION wal_stats_reset_format_diff(IN sserver_id integer,
 RETURNS TABLE(
   interval_num    integer,
   sample_id       integer,
-  wal_stats_reset text
+  wal_stats_reset text,
+  ord_sample      integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
-    1 AS interval_num,
+    interval_num,
     sample_id,
-    wal_stats_reset::text
-  FROM
-    wal_stats_reset(sserver_id, start1_id, end1_id)
-  UNION
-  SELECT
-    2 AS interval_num,
-    sample_id,
-    wal_stats_reset::text
-  FROM
-    wal_stats_reset(sserver_id, start2_id, end2_id)
+    wal_stats_reset,
+    row_number() OVER (ORDER BY interval_num ASC, sample_id ASC) AS ord_sample
+  FROM (
+    SELECT
+      1 AS interval_num,
+      sample_id,
+      wal_stats_reset::text AS wal_stats_reset
+    FROM
+      wal_stats_reset(sserver_id, start1_id, end1_id)
+    UNION
+    SELECT
+      2 AS interval_num,
+      sample_id,
+      wal_stats_reset::text AS wal_stats_reset
+    FROM
+      wal_stats_reset(sserver_id, start2_id, end2_id)
+  ) w;
 $$ LANGUAGE sql;
 
 CREATE FUNCTION wal_stats(IN sserver_id integer, IN start_id integer, IN end_id integer)

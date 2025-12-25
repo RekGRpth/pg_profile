@@ -148,14 +148,15 @@ CREATE FUNCTION cluster_stat_slru_reset_format(IN sserver_id integer,
 RETURNS TABLE(
     sample_id     integer,
     name          text,
-    stats_reset  timestamp with time zone
+    stats_reset   timestamp with time zone,
+    ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
     name,
-    stats_reset
-  FROM cluster_stat_slru_resets(sserver_id, start_id, end_id)
-  ORDER BY sample_id ASC
+    stats_reset,
+    row_number() OVER (ORDER BY sample_id ASC, name ASC) as ord_sample
+  FROM cluster_stat_slru_resets(sserver_id, start_id, end_id);
 $$ LANGUAGE sql;
 
 CREATE FUNCTION cluster_stat_slru_reset_format(IN sserver_id integer,
@@ -163,12 +164,14 @@ CREATE FUNCTION cluster_stat_slru_reset_format(IN sserver_id integer,
 RETURNS TABLE(
     sample_id     integer,
     name          text,
-    stats_reset  timestamp with time zone
+    stats_reset   timestamp with time zone,
+    ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
     name,
-    stats_reset
+    stats_reset,
+    row_number() OVER (ORDER BY sample_id ASC, name ASC) as ord_sample
   FROM (
     SELECT
       sample_id,
@@ -181,6 +184,5 @@ RETURNS TABLE(
       name,
       stats_reset
     FROM cluster_stat_slru_resets(sserver_id, start2_id, end2_id)
-    ) st
-  ORDER BY sample_id ASC
+    ) st;
 $$ LANGUAGE sql;
