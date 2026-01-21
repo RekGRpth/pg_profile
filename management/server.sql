@@ -105,6 +105,10 @@ BEGIN
           'FOREIGN KEY (server_id, sample_id, datid) '
           'REFERENCES sample_stat_database(server_id, sample_id, datid) ON DELETE RESTRICT',
         sserver_id);
+    EXECUTE format(
+      'CREATE UNIQUE INDEX ix_last_stat_tables_srv%1$s_toast ON last_stat_tables_srv%1$s '
+      '(sample_id, datid, reltoastrelid) WHERE reltoastrelid IS NOT NULL',
+      sserver_id);
 
     -- Create last_stat_indexes table partition
     EXECUTE format(
