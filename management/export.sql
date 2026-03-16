@@ -779,7 +779,8 @@ BEGIN
         INSERT INTO sample_stat_cluster(server_id,sample_id,checkpoints_timed,
           checkpoints_req,checkpoints_done,checkpoint_write_time,checkpoint_sync_time,buffers_checkpoint,
           slru_checkpoint,buffers_clean,maxwritten_clean,buffers_backend,buffers_backend_fsync,
-          buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery)
+          buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery,restartpoints_timed,restartpoints_req,
+          restartpoints_done,checkpoint_stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -798,7 +799,11 @@ BEGIN
           dr.stats_reset,
           dr.wal_size,
           dr.wal_lsn,
-          dr.in_recovery
+          dr.in_recovery,
+          dr.restartpoints_timed,
+          dr.restartpoints_req,
+          dr.restartpoints_done,
+          dr.checkpoint_stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
             server_id              integer,
             sample_id              integer,
@@ -817,7 +822,11 @@ BEGIN
             stats_reset            timestamp with time zone,
             wal_size               bigint,
             wal_lsn                pg_lsn,
-            in_recovery            boolean
+            in_recovery            boolean,
+            restartpoints_timed    bigint,
+            restartpoints_req      bigint,
+            restartpoints_done     bigint,
+            checkpoint_stats_reset timestamp with time zone
           )
         JOIN
           samples s_ctl ON
@@ -2819,7 +2828,7 @@ BEGIN
           blk_read_time,blk_write_time,stats_reset,datsize,datsize_delta,datistemplate,
           session_time,active_time,
           idle_in_transaction_time,sessions,sessions_abandoned,sessions_fatal,
-          sessions_killed,parallel_workers_to_launch,parallel_workers_launched)
+          sessions_killed,parallel_workers_to_launch,parallel_workers_launched,dattablespace,datallowconn)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -2854,7 +2863,9 @@ BEGIN
           dr.sessions_fatal,
           dr.sessions_killed,
           dr.parallel_workers_to_launch,
-          dr.parallel_workers_launched
+          dr.parallel_workers_launched,
+          dr.dattablespace,
+          dr.datallowconn
         FROM json_to_record(datarow.row_data) AS dr(
           server_id       integer,
           sample_id       integer,
@@ -2889,7 +2900,9 @@ BEGIN
           parallel_workers_to_launch  bigint,
           parallel_workers_launched   bigint,
           checksum_failures   bigint,
-          checksum_last_failure timestamp with time zone
+          checksum_last_failure timestamp with time zone,
+          dattablespace       oid,
+          datallowconn        boolean
           )
         JOIN
           samples s_ctl ON
@@ -2943,7 +2956,8 @@ BEGIN
         INSERT INTO last_stat_cluster (server_id,sample_id,checkpoints_timed,
           checkpoints_req,checkpoints_done,checkpoint_write_time,checkpoint_sync_time,
           buffers_checkpoint,slru_checkpoint,buffers_clean,maxwritten_clean,buffers_backend,
-          buffers_backend_fsync,buffers_alloc,stats_reset,wal_size)
+          buffers_backend_fsync,buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery,
+          restartpoints_timed,restartpoints_req,restartpoints_done,checkpoint_stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -2960,7 +2974,13 @@ BEGIN
           dr.buffers_backend_fsync,
           dr.buffers_alloc,
           dr.stats_reset,
-          dr.wal_size
+          dr.wal_size,
+          dr.wal_lsn,
+          dr.in_recovery,
+          dr.restartpoints_timed,
+          dr.restartpoints_req,
+          dr.restartpoints_done,
+          dr.checkpoint_stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
           server_id              integer,
           sample_id              integer,
@@ -2977,7 +2997,13 @@ BEGIN
           buffers_backend_fsync  bigint,
           buffers_alloc          bigint,
           stats_reset            timestamp with time zone,
-          wal_size               bigint
+          wal_size               bigint,
+          wal_lsn                pg_lsn,
+          in_recovery            boolean,
+          restartpoints_timed    bigint,
+          restartpoints_req      bigint,
+          restartpoints_done     bigint,
+          checkpoint_stats_reset timestamp with time zone
           )
         JOIN
           samples s_ctl ON
