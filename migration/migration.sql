@@ -19,3 +19,23 @@ $$
     END LOOP;
   END;
 $$ LANGUAGE plpgsql;
+
+DROP VIEW v_sample_timings;
+
+ALTER TABLE sample_timings
+    ALTER COLUMN event_ts TYPE timestamp with time zone USING event_ts::timestamp with time zone;
+
+CREATE VIEW v_sample_timings AS
+SELECT
+  srv.server_name,
+  smp.sample_id,
+  smp.sample_time,
+  tm.event as sampling_event,
+  tm.exec_point,
+  tm.event_ts
+FROM
+  sample_timings tm
+  JOIN servers srv USING (server_id)
+  JOIN samples smp USING (server_id, sample_id);
+COMMENT ON VIEW v_sample_timings IS 'Sample taking time statistics with server names and sample times';
+GRANT SELECT ON v_sample_timings TO public;

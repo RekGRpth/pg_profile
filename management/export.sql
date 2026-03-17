@@ -1322,35 +1322,37 @@ BEGIN
         END IF;
       END LOOP; -- over data rows
     WHEN 'sample_timings' THEN
-      LOOP
-        FETCH data INTO datarow;
-        EXIT WHEN NOT FOUND;
-        INSERT INTO sample_timings(server_id, sample_id, event, exec_point, event_ts)
-        SELECT
-          (srv_map ->> dr.server_id::text)::integer,
-          dr.sample_id,
-          dr.event,
-          dr.exec_point,
-          dr.event_ts
-        FROM json_to_record(datarow.row_data) AS dr(
-            server_id      integer,
-            sample_id      integer,
-            event          text,
-            exec_point     text,
-            event_ts       timestamp
-          )
-         JOIN
-          samples s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
-            (s_ctl.server_id, s_ctl.sample_id)
-        ON CONFLICT ON CONSTRAINT pk_sample_timings
-          DO NOTHING;
-        GET DIAGNOSTICS row_proc = ROW_COUNT;
-        rowcnt := rowcnt + row_proc;
-        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
-          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
-        END IF;
-      END LOOP; -- over data rows
+      IF array_position(versions_array, '4.11:pg_profile') >= 1 THEN
+        LOOP
+          FETCH data INTO datarow;
+          EXIT WHEN NOT FOUND;
+          INSERT INTO sample_timings(server_id, sample_id, event, exec_point, event_ts)
+          SELECT
+            (srv_map ->> dr.server_id::text)::integer,
+            dr.sample_id,
+            dr.event,
+            dr.exec_point,
+            dr.event_ts
+          FROM json_to_record(datarow.row_data) AS dr(
+              server_id      integer,
+              sample_id      integer,
+              event          text,
+              exec_point     text,
+              event_ts       timestamp with time zone
+            )
+           JOIN
+            samples s_ctl ON
+              ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+              (s_ctl.server_id, s_ctl.sample_id)
+          ON CONFLICT ON CONSTRAINT pk_sample_timings
+            DO NOTHING;
+          GET DIAGNOSTICS row_proc = ROW_COUNT;
+          rowcnt := rowcnt + row_proc;
+          IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+            RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+          END IF;
+        END LOOP; -- over data rows
+      END IF;
     WHEN 'tablespaces_list' THEN
       LOOP
         FETCH data INTO datarow;

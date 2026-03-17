@@ -4,7 +4,7 @@ CREATE TABLE sample_timings (
     sample_id   integer NOT NULL,
     event       text,
     exec_point  text,
-    event_ts    timestamp,
+    event_ts    timestamp with time zone,
     CONSTRAINT pk_sample_timings PRIMARY KEY (server_id, sample_id, event, exec_point),
     CONSTRAINT fk_sample_timings_sample FOREIGN KEY (server_id, sample_id)
       REFERENCES samples(server_id, sample_id) ON DELETE CASCADE

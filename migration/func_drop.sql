@@ -23,3 +23,4 @@ DROP FUNCTION profile_checkavail_trg_functions;
 DROP FUNCTION profile_checkavail_rusage;
 DROP FUNCTION profile_checkavail_rusage_planstats;
 DROP FUNCTION create_server_partitions;
+DROP FUNCTION import_section_data_profile;
