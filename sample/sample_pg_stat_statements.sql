@@ -129,6 +129,8 @@ BEGIN
           'NULL as jit_deform_time, '
           'NULL as parallel_workers_to_launch, '
           'NULL as parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
           'NULL as stats_since, '
           'NULL as minmax_stats_since '
         );
@@ -181,6 +183,8 @@ BEGIN
           'NULL as jit_deform_time, '
           'NULL as parallel_workers_to_launch, '
           'NULL as parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
           'NULL as stats_since, '
           'NULL as minmax_stats_since '
         );
@@ -233,6 +237,8 @@ BEGIN
           'NULL as jit_deform_time, '
           'NULL as parallel_workers_to_launch, '
           'NULL as parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
           'NULL as stats_since, '
           'NULL as minmax_stats_since '
         );
@@ -285,6 +291,8 @@ BEGIN
           'NULL as jit_deform_time, '
           'NULL as parallel_workers_to_launch, '
           'NULL as parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
           'NULL as stats_since, '
           'NULL as minmax_stats_since '
         );
@@ -337,6 +345,8 @@ BEGIN
           'st.jit_deform_time, '
           'NULL as parallel_workers_to_launch, '
           'NULL as parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
           'st.stats_since, '
           'st.minmax_stats_since '
         );
@@ -389,6 +399,62 @@ BEGIN
           'st.jit_deform_time, '
           'st.parallel_workers_to_launch, '
           'st.parallel_workers_launched, '
+          'NULL as generic_plan_calls, '
+          'NULL as custom_plan_calls, '
+          'st.stats_since, '
+          'st.minmax_stats_since '
+        );
+      WHEN '1.13'
+      THEN
+        st_query := replace(st_query, '{statements_fields}',
+          'st.toplevel,'
+          'st.plans,'
+          'st.total_plan_time,'
+          'st.min_plan_time,'
+          'st.max_plan_time,'
+          'st.mean_plan_time,'
+          'st.stddev_plan_time,'
+          'st.calls,'
+          'st.total_exec_time,'
+          'st.min_exec_time,'
+          'st.max_exec_time,'
+          'st.mean_exec_time,'
+          'st.stddev_exec_time,'
+          'st.rows,'
+          'st.shared_blks_hit,'
+          'st.shared_blks_read,'
+          'st.shared_blks_dirtied,'
+          'st.shared_blks_written,'
+          'st.local_blks_hit,'
+          'st.local_blks_read,'
+          'st.local_blks_dirtied,'
+          'st.local_blks_written,'
+          'st.temp_blks_read,'
+          'st.temp_blks_written,'
+          'st.shared_blk_read_time,'
+          'st.shared_blk_write_time,'
+          'st.wal_records,'
+          'st.wal_fpi,'
+          'st.wal_bytes, '
+          'st.wal_buffers_full, '
+          'st.jit_functions, '
+          'st.jit_generation_time, '
+          'st.jit_inlining_count, '
+          'st.jit_inlining_time, '
+          'st.jit_optimization_count, '
+          'st.jit_optimization_time, '
+          'st.jit_emission_count, '
+          'st.jit_emission_time, '
+          'st.temp_blk_read_time, '
+          'st.temp_blk_write_time, '
+          'st.local_blk_read_time, '
+          'st.local_blk_write_time, '
+          'st.jit_deform_count, '
+          'st.jit_deform_time, '
+          'st.parallel_workers_to_launch, '
+          'st.parallel_workers_launched, '
+          'st.generic_plan_calls, '
+          'st.custom_plan_calls, '
           'st.stats_since, '
           'st.minmax_stats_since '
         );
@@ -451,6 +517,8 @@ BEGIN
         jit_deform_time,
         parallel_workers_to_launch,
         parallel_workers_launched,
+        generic_plan_calls,
+        custom_plan_calls,
         stats_since,
         minmax_stats_since
       )
@@ -508,6 +576,8 @@ BEGIN
       dbl.jit_deform_time,
       dbl.parallel_workers_to_launch,
       dbl.parallel_workers_launched,
+      dbl.generic_plan_calls,
+      dbl.custom_plan_calls,
       dbl.stats_since,
       dbl.minmax_stats_since
     FROM dblink('server_connection',st_query)
@@ -563,6 +633,8 @@ BEGIN
         jit_deform_time     double precision,
         parallel_workers_to_launch  bigint,
         parallel_workers_launched   bigint,
+        generic_plan_calls  bigint,
+        custom_plan_calls   bigint,
         stats_since         timestamp with time zone,
         minmax_stats_since  timestamp with time zone
       );
@@ -828,7 +900,7 @@ BEGIN
           $o$regexp_replace(query,$i$\s+$i$,$i$ $i$,$i$g$i$) AS query $o$ ||
           'FROM %1$I.pg_stat_statements(true) '
           'WHERE queryid IN (%s)';
-      WHEN '1.9', '1.10', '1.11', '1.12'
+      WHEN '1.9', '1.10', '1.11', '1.12', '1.13'
       THEN
         st_query :=
           'SELECT userid, dbid, toplevel, queryid, '||
@@ -1002,7 +1074,7 @@ BEGIN
         IF (properties #> '{properties,statements_reset}') = to_jsonb(true) THEN
           st_query := 'SELECT %1$I.pg_stat_statements_reset() IS NULL';
         END IF;
-      WHEN '1.11','1.12'
+      WHEN '1.11','1.12','1.13'
       THEN
         IF (properties #> '{properties,statements_reset}')::boolean THEN
           st_query := 'SELECT %1$I.pg_stat_statements_reset() IS NULL';
@@ -1301,6 +1373,8 @@ SET search_path=@extschema@ AS $$
     jit_deform_time,
     parallel_workers_to_launch,
     parallel_workers_launched,
+    generic_plan_calls,
+    custom_plan_calls,
     stats_since,
     minmax_stats_since
   )
@@ -1381,6 +1455,8 @@ SET search_path=@extschema@ AS $$
     cur.jit_deform_time - COALESCE(lst.jit_deform_time, 0),
     cur.parallel_workers_to_launch - COALESCE(lst.parallel_workers_to_launch, 0),
     cur.parallel_workers_launched - COALESCE(lst.parallel_workers_launched, 0),
+    cur.generic_plan_calls - COALESCE(lst.generic_plan_calls, 0),
+    cur.custom_plan_calls - COALESCE(lst.custom_plan_calls, 0),
     cur.stats_since,
     cur.minmax_stats_since
   FROM

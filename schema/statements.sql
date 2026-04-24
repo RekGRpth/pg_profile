@@ -68,6 +68,8 @@ CREATE TABLE sample_statements (
     wal_buffers_full    bigint,
     parallel_workers_to_launch  bigint,
     parallel_workers_launched   bigint,
+    generic_plan_calls  bigint,
+    custom_plan_calls   bigint,
     CONSTRAINT pk_sample_statements_n PRIMARY KEY (server_id, sample_id, datid, userid, queryid, toplevel),
     CONSTRAINT fk_stmt_list FOREIGN KEY (server_id,queryid_md5)
       REFERENCES stmt_list (server_id,queryid_md5)
@@ -141,7 +143,9 @@ CREATE TABLE last_stat_statements (
     minmax_stats_since  timestamp with time zone,
     wal_buffers_full    bigint,
     parallel_workers_to_launch  bigint,
-    parallel_workers_launched   bigint
+    parallel_workers_launched   bigint,
+    generic_plan_calls  bigint,
+    custom_plan_calls   bigint
 )
 PARTITION BY LIST (server_id);
 

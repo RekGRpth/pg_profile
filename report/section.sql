@@ -72,10 +72,8 @@ BEGIN
         'stmt_cnt_range', profile_checkavail_stmt_cnt(sserver_id, start1_id, end1_id),
         'stmt_cnt_all', profile_checkavail_stmt_cnt(sserver_id, 0, 0),
         'cluster_stats_reset', profile_checkavail_cluster_stats_reset(sserver_id, start1_id, end1_id),
-        'wal_stats_reset', profile_checkavail_wal_stats_reset(sserver_id, start1_id, end1_id),
         'statstatements',profile_checkavail_statstatements(sserver_id, start1_id, end1_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id),
-        'wal_stats',profile_checkavail_walstats(sserver_id, start1_id, end1_id),
         'stat_io', (
           SELECT COUNT(*) > 0 FROM (
             SELECT backend_type
@@ -112,18 +110,42 @@ BEGIN
             GROUP BY name
           ) gr
         ),
+        'stat_lock', (
+          SELECT COUNT(*) > 0 FROM (
+            SELECT locktype
+            FROM sample_stat_lock
+            WHERE server_id = sserver_id AND
+              sample_id BETWEEN start1_id + 1 AND end1_id
+            LIMIT 1
+            ) c
+        ),
+        'stat_lock_reset', (
+          SELECT bool_or(group_reset)
+          FROM (
+            SELECT COUNT(DISTINCT stats_reset) > 1 AS group_reset
+            FROM sample_stat_lock
+            WHERE server_id = sserver_id AND sample_id BETWEEN start1_id AND end1_id
+            GROUP BY locktype
+          ) gr
+        ),
         'table_storage_parameters', (
           SELECT count(*) > 0
           FROM v_table_storage_parameters
           WHERE server_id = sserver_id AND
             sample_id BETWEEN start1_id AND end1_id
-          ),
+        ),
         'index_storage_parameters', (
           SELECT count(*) > 0
           FROM v_index_storage_parameters
           WHERE server_id = sserver_id AND
             sample_id BETWEEN start1_id AND end1_id
-          )
+        ),
+        'sequence_stat', (
+          SELECT count(*) > 0
+          FROM sample_stat_sequences
+          WHERE server_id = sserver_id AND
+            sample_id BETWEEN start1_id + 1 AND end1_id
+        )
       ),
       'report_properties',jsonb_build_object(
         'interval_duration_sec',
@@ -171,7 +193,8 @@ BEGIN
           -- statements_cover should be used to control appearance of the cover field.
           count(*) FILTER (WHERE stats_since > start1_time) > 0 as statements_coverage,
           count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as statements_workers_stats,
-          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full
+          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full,
+          count(*) FILTER (WHERE greatest(generic_plan_calls, custom_plan_calls) > 0) > 0 as statements_plan_types
         FROM sample_statements
         WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
       ) ft;
@@ -252,6 +275,19 @@ BEGIN
           count(*) FILTER (WHERE plan_user_time > 0) > 0 as rusage_planstats
         FROM sample_kcache_total
         WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- Check if there is WAL stats collected
+          count(wal_bytes) FILTER (WHERE sample_id BETWEEN start1_id + 1 AND end1_id) > 0 as wal_stats,
+          -- Check if wal statistics were reset
+          count(DISTINCT stats_reset) > 1 as wal_stats_reset,
+          count(wal_fpi_bytes) FILTER (WHERE sample_id BETWEEN start1_id + 1 AND end1_id) > 0 as wal_fpi_bytes
+        FROM sample_stat_wal
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id AND end1_id
       ) ft;
 
       -- stat_activity features
@@ -340,14 +376,10 @@ BEGIN
         'stmt_cnt_all', profile_checkavail_stmt_cnt(sserver_id, 0, 0),
         'cluster_stats_reset', profile_checkavail_cluster_stats_reset(sserver_id, start1_id, end1_id) OR
           profile_checkavail_cluster_stats_reset(sserver_id, start2_id, end2_id),
-        'wal_stats_reset', profile_checkavail_wal_stats_reset(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_wal_stats_reset(sserver_id, start2_id, end2_id),
         'statstatements',profile_checkavail_statstatements(sserver_id, start1_id, end1_id) OR
           profile_checkavail_statstatements(sserver_id, start2_id, end2_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id) OR
           profile_checkavail_wait_sampling_total(sserver_id, start2_id, end2_id),
-        'wal_stats',profile_checkavail_walstats(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_walstats(sserver_id, start2_id, end2_id),
         'stat_io', (
           SELECT COUNT(*) > 0 FROM (
             SELECT backend_type
@@ -394,18 +426,52 @@ BEGIN
             GROUP BY name
           ) gr
         ),
+        'stat_lock', (
+          SELECT COUNT(*) > 0 FROM (
+            SELECT locktype
+            FROM sample_stat_lock
+            WHERE server_id = sserver_id AND (
+              sample_id BETWEEN start1_id + 1 AND end1_id OR
+              sample_id BETWEEN start2_id + 1 AND end2_id
+              ) LIMIT 1
+          ) c
+        ),
+        'stat_lock_reset', (
+          SELECT bool_or(group_reset)
+          FROM (
+            SELECT COUNT(DISTINCT stats_reset) > 1 AS group_reset
+            FROM sample_stat_lock
+            WHERE server_id = sserver_id AND (
+              sample_id BETWEEN start1_id AND end1_id OR
+              sample_id BETWEEN start2_id AND end2_id
+              )
+            GROUP BY locktype
+          ) gr
+        ),
         'table_storage_parameters', (
           SELECT count(*) > 0
           FROM v_table_storage_parameters
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id AND end1_id
-          ),
+          WHERE server_id = sserver_id AND (
+            sample_id BETWEEN start1_id AND end1_id OR
+            sample_id BETWEEN start2_id AND end2_id
+            )
+        ),
         'index_storage_parameters', (
           SELECT count(*) > 0
           FROM v_index_storage_parameters
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id AND end1_id
-          )
+          WHERE server_id = sserver_id AND (
+            sample_id BETWEEN start1_id AND end1_id OR
+            sample_id BETWEEN start2_id AND end2_id
+            )
+        ),
+        'sequence_stat', (
+          SELECT count(*) > 0
+          FROM sample_stat_sequences
+          WHERE server_id = sserver_id AND (
+            sample_id BETWEEN start1_id + 1 AND end1_id OR
+            sample_id BETWEEN start2_id + 1 AND end2_id
+            )
+        )
       ),
       'report_properties', jsonb_build_object(
         'interval1_duration_sec',
@@ -474,7 +540,8 @@ BEGIN
           count(*) FILTER (WHERE (stats_since > start1_time AND sample_id BETWEEN start1_id + 1 AND end1_id) OR
             (stats_since > start2_time AND sample_id BETWEEN start2_id + 1 AND end2_id)) > 0 as statements_coverage,
           count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as statements_workers_stats,
-          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full
+          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full,
+          count(*) FILTER (WHERE greatest(generic_plan_calls, custom_plan_calls) > 0) > 0 as statements_plan_types
         FROM sample_statements
         WHERE server_id = sserver_id AND (
           sample_id BETWEEN start1_id + 1 AND end1_id OR
@@ -559,6 +626,25 @@ BEGIN
         WHERE server_id = sserver_id AND (
           sample_id BETWEEN start1_id + 1 AND end1_id OR
           sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- Check if there is WAL stats collected
+          count(wal_bytes) FILTER (WHERE sample_id BETWEEN start1_id + 1 AND end1_id OR
+            sample_id BETWEEN start2_id + 1 AND end2_id) > 0 as wal_stats,
+          -- Check if wal statistics were reset
+          count(DISTINCT stats_reset) FILTER (WHERE sample_id BETWEEN start1_id AND end1_id) > 1 OR
+            count(DISTINCT stats_reset) FILTER (WHERE sample_id BETWEEN start2_id AND end2_id) > 1 as wal_stats_reset,
+          count(wal_fpi_bytes) FILTER (WHERE sample_id BETWEEN start1_id + 1 AND end1_id OR
+            sample_id BETWEEN start2_id + 1 AND end2_id) > 0 as wal_fpi_bytes
+        FROM sample_stat_wal
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id AND end1_id OR
+          sample_id BETWEEN start2_id AND end2_id
           )
       ) ft;
 
@@ -769,6 +855,19 @@ BEGIN
       END IF;
     END IF;
 
+    IF (report_context #>> '{report_features,stat_lock}')::boolean THEN
+      -- stat_lock dataset
+      SELECT coalesce(jsonb_set(datasets, '{stat_lock}', jsonb_agg(to_jsonb(dt))), datasets)
+      INTO datasets
+      FROM cluster_stat_lock_format(sserver_id, start1_id, end1_id) dt;
+      IF (report_context #>> '{report_features,stat_lock_reset}')::boolean THEN
+        -- lock reset dataset
+        SELECT coalesce(jsonb_set(datasets, '{stat_lock_reset}', jsonb_agg(to_jsonb(dt))), datasets)
+        INTO datasets
+        FROM cluster_stat_lock_reset_format(sserver_id, start1_id, end1_id) dt;
+      END IF;
+    END IF;
+
     IF (report_context #>> '{report_features,statstatements}')::boolean THEN
       -- statements by database dataset
       SELECT coalesce(jsonb_set(datasets, '{statements_dbstats}', jsonb_agg(to_jsonb(dt))), datasets)
@@ -921,6 +1020,14 @@ BEGIN
         ord_vac
       ) <= (report_context #>> '{report_properties,topn}')::numeric;
 
+    SELECT coalesce(jsonb_set(datasets, '{top_sequences}', jsonb_agg(to_jsonb(dt))), datasets)
+    INTO datasets
+    FROM top_sequences_format(sserver_id, start1_id, end1_id) dt
+    WHERE least(
+        ord_fetch,
+        ord_read
+      ) <= (report_context #>> '{report_properties,topn}')::numeric;
+
     SELECT coalesce(jsonb_set(datasets, '{top_functions}', jsonb_agg(to_jsonb(dt))), datasets)
     INTO datasets
     FROM top_functions_format(sserver_id, start1_id, end1_id) dt
@@ -1058,6 +1165,21 @@ BEGIN
         SELECT coalesce(jsonb_set(datasets, '{stat_slru_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
         FROM cluster_stat_slru_reset_format(sserver_id,
+          start1_id, end1_id, start2_id, end2_id) dt;
+      END IF;
+    END IF;
+
+    IF (report_context #>> '{report_features,stat_lock}')::boolean THEN
+      -- stat_lock dataset
+      SELECT coalesce(jsonb_set(datasets, '{stat_lock}', jsonb_agg(to_jsonb(dt))), datasets)
+      INTO datasets
+      FROM cluster_stat_lock_format(sserver_id, start1_id, end1_id,
+        start2_id, end2_id) dt;
+      IF (report_context #>> '{report_features,stat_lock_reset}')::boolean THEN
+        -- lock reset dataset
+        SELECT coalesce(jsonb_set(datasets, '{stat_lock_reset}', jsonb_agg(to_jsonb(dt))), datasets)
+        INTO datasets
+        FROM cluster_stat_lock_reset_format(sserver_id,
           start1_id, end1_id, start2_id, end2_id) dt;
       END IF;
     END IF;
@@ -1225,6 +1347,15 @@ BEGIN
     WHERE least(
         ord_growth,
         ord_vac
+      ) <= (report_context #>> '{report_properties,topn}')::numeric;
+
+    SELECT coalesce(jsonb_set(datasets, '{top_sequences}', jsonb_agg(to_jsonb(dt))), datasets)
+    INTO datasets
+    FROM top_sequences_format(sserver_id,
+      start1_id, end1_id, start2_id, end2_id) dt
+    WHERE least(
+        ord_fetch,
+        ord_read
       ) <= (report_context #>> '{report_properties,topn}')::numeric;
 
     SELECT coalesce(jsonb_set(datasets, '{top_functions}', jsonb_agg(to_jsonb(dt))), datasets)

@@ -373,10 +373,12 @@ Event descriptions:
 * **query pg_stat_io** - Collecting cluster IO statistics using the _pg_stat_io_ view.
 * **query pg_stat_slru** - Collecting cluster SLRU statistics using the _pg_stat_slru_ view.
 * **query pg_stat_archiver** - Collecting cluster statistics using the _pg_stat_archiver_ view.
+* **query pg_stat_lock** - Collecting cluster statistics using the _pg_stat_lock_ view.
 * **collect object stats** - Collecting statistics on database objects. Includes following events:
   * **db:_dbname_ get extensions version** - Collecting extensions version list for the _dbname_ database.
   * **db:_dbname_ collect tables stats** - Collecting statistics on tables for the _dbname_ database.
   * **db:_dbname_ collect indexes stats** - Collecting statistics on indexes for the _dbname_ database.
+  * **db:_dbname_ collect sequences stats** - Collecting statistics on sequences for the _dbname_ database.
   * **db:_dbname_ collect functions stats** - Collecting statistics on functions for the _dbname_ database.
   * **analyzing collected data** - Analyze partitions of collected data
 * **processing subsamples** - Collecting server process statistics using the _pg_stat_activity_ view.
@@ -386,6 +388,7 @@ Event descriptions:
 * **calculate object stats** - Calculating differential statistics on database objects. Includes following events:
   * **calculate tables stats** - Calculating differential statistics on tables of all databases.
   * **calculate indexes stats** - Calculating differential statistics on indexes of all databases.
+  * **calculate sequences stats** - Calculating differential statistics on sequences of all databases.
   * **calculate functions stats** - Calculating differential statistics on functions of all databases.
   * **merge new extensions version** - Processing extensions version data
   * **merge new relation storage parameters** - Processing relation storage parameters data
@@ -394,6 +397,7 @@ Event descriptions:
 * **calculate SLRU stats** - Calculating cluster SLRU differential statistics.
 * **calculate WAL stats** - Calculating cluster WAL differential statistics.
 * **calculate archiver stats** - Calculating archiever differential statistics.
+* **calculate lock stats** - Calculating cluster lock differential statistics.
 * **delete obsolete samples** - Deleting obsolete baselines and samples.
 
 ### Subsamples
@@ -819,6 +823,8 @@ This table contains data from *pg_stat_wal* view. Available since Postgres 14
 * *WAL per second* - average amount of WAL generated per second
 * *WAL records* - total number of WAL records generated (*wal_records*)
 * *WAL FPI* - total number of WAL full page images generated (*wal_fpi*)
+* *WAL FPI generated* - total amount of WAL full page images (*wal_fpi_bytes*)
+* *WAL FPI per second* - average amount of WAL full page images generated per second
 * *WAL buffers full* - number of times WAL data was written to disk because WAL buffers became full (*wal_buffers_full*)
 * *WAL writes* - number of times WAL buffers were written out to disk via XLogWrite request (*wal_write*)
 * *WAL writes per second* - average number of times WAL buffers were written out to disk via XLogWrite request per second
@@ -837,6 +843,21 @@ This table contains information about tablespaces sizes and growth:
 * *Path* - tablespace path
 * *Size* - tablespace size as it was at time of last sample in report interval
 * *Growth* - tablespace growth during report interval
+
+#### Lock statistics
+
+This table contains data from *pg_stat_lock* view. Available since Postgres 19
+
+* *Lock type* - Type of the lockable object
+* *Waits*
+  * *Count* - Number of times a lock of this type had to wait because of a conflicting lock
+  * *%Total* - Number of locks of this type as a percentage of total locks in a cluster
+* *Wait time*
+  * *Time (ms)* - Total time spent waiting for locks of this type
+  * *%Total* - Total time spent waiting for locks of this type as a percentage of total lock time in a cluster
+* *Fastpath exceeded*
+  * *Count* - Number of times a lock of this type could not be acquired via fast path because the fast path slot limit was exceeded
+  * *%Total* - Number of locks of this type as a percentage of total locks in a cluster
 
 #### Wait sampling
 
@@ -972,6 +993,9 @@ Top _pg_profile.topn_ statements sorted by *total_plan_time* field of *pg_stat_s
   * *Min* - minimum time spent planning this statement (*min_plan_time* field)
   * *Max* - maximum time spent planning this statement (*max_plan_time* field)
   * *StdErr* - population standard deviation of time spent planning this statement (*stddev_plan_time* field)
+* *Plan types*:
+  * *Generic* - Number of times the statement has been executed using a generic plan (*generic_plan_calls* field)
+  * *Custom* - Number of times the statement has been executed using a custom plan (*custom_plan_calls* field)
 * *Plans* - number of times this statement was planned (*plans* field)
 * *Executions* - number of times this statement was executed (*calls* field)
 * *%Cvr* - Coverage: statement stats collection duration as a percentage of the report duration
@@ -997,6 +1021,9 @@ Top _pg_profile.topn_ statements sorted by *total_time* (or *total_exec_time*) f
   * *Max* - maximum time spent executing this statement (*max_exec_time* field)
   * *StdErr* - population standard deviation of time spent executing this statement (*stddev_exec_time* field)
 * *Executions* - number of times this statement was executed (*calls* field)
+* *Plan types*:
+  * *Generic* - Number of times the statement has been executed using a generic plan (*generic_plan_calls* field)
+  * *Custom* - Number of times the statement has been executed using a custom plan (*custom_plan_calls* field)
 * *%Cvr* - Coverage: statement stats collection duration as a percentage of the report duration
 
 #### Top SQL by mean execution time
@@ -1020,6 +1047,9 @@ Top _pg_profile.topn_ statements sorted by *mean_time* (or *mean_exec_time*) fie
   * *Write* - time spent writing blocks (*blk_write_time* field)
 * *Rows* - number of rows retrieved or affected by the statement (*rows* field)
 * *Executions* - number of times this statement was executed (*calls* field)
+* *Plan types*:
+  * *Generic* - Number of times the statement has been executed using a generic plan (*generic_plan_calls* field)
+  * *Custom* - Number of times the statement has been executed using a custom plan (*custom_plan_calls* field)
 * *%Cvr* - Coverage: statement stats collection duration as a percentage of the report duration
 
 #### Top SQL by executions
@@ -1037,6 +1067,9 @@ Top _pg_profile.topn_ statements sorted by *calls* field of *pg_stat_statements*
 * *Max(ms)* - maximum time spent in the statement, in milliseconds (*max_time* or *max_exec_time* field)
 * *StdErr(ms)* - population standard deviation of time spent in the statement, in milliseconds (*stddev_time* or *stddev_exec_time* field)
 * *Elapsed(s)* - amount of time spent executing this query, in seconds (*total_time* or *total_exec_time* field)
+* *Plan types*:
+  * *Generic* - Number of times the statement has been executed using a generic plan (*generic_plan_calls* field)
+  * *Custom* - Number of times the statement has been executed using a custom plan (*custom_plan_calls* field)
 * *%Cvr* - Coverage: statement stats collection duration as a percentage of the report duration
 
 #### Top SQL by I/O wait time
@@ -1457,6 +1490,38 @@ Non-scanned indexes during report interval sorted by DML operations on underlyin
   * *Upd* - number of rows updated in underlying table (without HOT) (*n_tup_upd* - *n_tup_hot_upd*)
   * *Del* - number of rows deleted from underlying table (*n_tup_del* field)
 
+#### Top sequences by blocks fetched
+
+Fetched block is a block being processed from disk (read), or from shared buffers (hit). Based on data of *pg_statio_all_sequences* view.
+
+* *DB* - database name of the sequence
+* *Tablespace* - tablespace name, where the sequence is located
+* *Schema* - schema name of the sequence
+* *Sequence* - sequence name
+* *Fetched*:
+  * *Blocks* - Number of blocks fetched (read+hit) from this sequence (*blks_read* + *blks_hit*)
+  * *%Total* - Blocks fetched from this sequence as a percentage of all blocks fetched in a cluster
+* *Reads*:
+  * *Blocks* - Number of blocks read from this sequence (*blks_read* field)
+  * *%Total* - Blocks read from this sequence as a percentage of all blocks read in a cluster
+* *Hits(%)* - Number of disk blocks hits from this sequence as a percentage of reads + hits
+
+#### Top sequences by blocks fetched
+
+Top sequences sorted by block reads. Based on data of *pg_statio_all_sequences* view.
+
+* *DB* - database name of the sequence
+* *Tablespace* - tablespace name, where the sequence is located
+* *Schema* - schema name of the sequence
+* *Sequence* - sequence name
+* *Fetched*:
+  * *Blocks* - Number of blocks fetched (read+hit) from this sequence (*blks_read* + *blks_hit*)
+  * *%Total* - Blocks fetched from this sequence as a percentage of all blocks fetched in a cluster
+* *Reads*:
+  * *Blocks* - Number of blocks read from this sequence (*blks_read* field)
+  * *%Total* - Blocks read from this sequence as a percentage of all blocks read in a cluster
+* *Hits(%)* - Number of disk blocks hits from this sequence as a percentage of reads + hits
+
 ### User function statistics
 
 This report section contains top functions in cluster, based on *pg_stat_user_functions* view.
@@ -1466,7 +1531,7 @@ This report section contains top functions in cluster, based on *pg_stat_user_fu
 Top functions sorted by time elapsed.
 
 * *DB* - database name of the function
-* *Schema* - schema name of the index
+* *Schema* - schema name of the function
 * *Function* - function name
 * *Executions* - number of times this function has been called (*calls* field)
 * *Time (s)* - function timing statistics in seconds
@@ -1480,7 +1545,7 @@ Top functions sorted by time elapsed.
 Top functions sorted by executions count.
 
 * *DB* - database name of the function
-* *Schema* - schema name of the index
+* *Schema* - schema name of the function
 * *Function* - function name
 * *Executions* - number of times this function has been called (*calls* field)
 * *Time (s)* - function timing statistics in seconds
@@ -1494,7 +1559,7 @@ Top functions sorted by executions count.
 Top trigger functions sorted by time elapsed.
 
 * *DB* - database name of the function
-* *Schema* - schema name of the index
+* *Schema* - schema name of the function
 * *Function* - function name
 * *Executions* - number of times this function has been called (*calls* field)
 * *Time (s)* - function timing statistics in seconds

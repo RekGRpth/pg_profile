@@ -52,6 +52,7 @@ CREATE TABLE sample_stat_wal
     wal_write_time      double precision,
     wal_sync_time       double precision,
     stats_reset         timestamp with time zone,
+    wal_fpi_bytes       numeric,
     CONSTRAINT fk_statwal_samples FOREIGN KEY (server_id, sample_id)
       REFERENCES samples (server_id, sample_id) ON DELETE CASCADE
       DEFERRABLE INITIALLY IMMEDIATE,
@@ -161,3 +162,27 @@ ALTER TABLE last_stat_slru ADD CONSTRAINT fk_last_stat_slru_samples
   FOREIGN KEY (server_id, sample_id) REFERENCES samples(server_id, sample_id) ON DELETE RESTRICT
   DEFERRABLE INITIALLY IMMEDIATE;
 COMMENT ON TABLE last_stat_slru IS 'Last sample data for calculating diffs in next sample';
+
+CREATE TABLE sample_stat_lock
+(
+    server_id                 integer,
+    sample_id                 integer,
+    locktype                  text,
+    waits                     bigint,
+    wait_time                 bigint,
+    fastpath_exceeded         bigint,
+    stats_reset               timestamp with time zone,
+    CONSTRAINT fk_sample_stat_lock_samples FOREIGN KEY (server_id, sample_id)
+      REFERENCES samples (server_id, sample_id) ON DELETE CASCADE
+      DEFERRABLE INITIALLY IMMEDIATE,
+    CONSTRAINT pk_sample_stat_lock PRIMARY KEY (server_id, sample_id, locktype)
+);
+COMMENT ON TABLE sample_stat_lock IS 'Sample locks statistics table (fields from pg_stat_lock)';
+
+CREATE TABLE last_stat_lock(LIKE sample_stat_lock);
+ALTER TABLE last_stat_lock ADD CONSTRAINT pk_last_stat_lock
+  PRIMARY KEY (server_id, sample_id, locktype);
+ALTER TABLE last_stat_lock ADD CONSTRAINT fk_last_stat_lock_samples
+  FOREIGN KEY (server_id, sample_id) REFERENCES samples(server_id, sample_id) ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE;
+COMMENT ON TABLE last_stat_lock IS 'Last sample data for calculating diffs in next sample';

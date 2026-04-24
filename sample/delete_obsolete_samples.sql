@@ -43,6 +43,16 @@ begin
       (utl.server_id, utl.datid, utl.relid) =
       (sserver_id, tl.datid, tl.relid);
 
+    UPDATE sequences_list utl SET last_sample_id = ssample_id - 1
+    FROM sequences_list tl LEFT JOIN sample_stat_sequences cur
+      ON (cur.server_id, cur.sample_id, cur.datid, cur.relid) =
+        (sserver_id, ssample_id, tl.datid, tl.relid)
+    WHERE
+      tl.last_sample_id IS NULL AND
+      tl.server_id = sserver_id AND cur.server_id IS NULL AND
+      (utl.server_id, utl.datid, utl.relid) =
+      (sserver_id, tl.datid, tl.relid);
+
     UPDATE stmt_list slu SET last_sample_id = ssample_id - 1
     FROM sample_statements ss RIGHT JOIN stmt_list sl
       ON (ss.server_id, ss.sample_id, ss.queryid_md5) =

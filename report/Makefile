@@ -2,10 +2,12 @@ report_files = \
 	functions/clusterstat.sql \
 	functions/stat_io.sql \
 	functions/stat_slru.sql \
+	functions/stat_lock.sql \
 	functions/dbstat.sql \
 	functions/dead_mods_ix_unused.sql \
 	functions/functionstat.sql \
 	functions/indexstat.sql \
+	functions/sequences.sql \
 	functions/kcachestat.sql \
 	functions/settings.sql \
 	functions/statements_checks.sql \
