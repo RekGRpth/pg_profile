@@ -846,7 +846,7 @@ class VerticalTable extends BaseTable {
 
             for (let j = 0; j < columns[i].cells.length; j++) {
                 let cell = columns[i].cells[j];
-                let klass = classes[j].class;
+                let klass = classes[j + 1] ? classes[j + 1].class : null;
                 VerticalTable.buildCell(newRow, cell, rows, klass);
             }
         }
