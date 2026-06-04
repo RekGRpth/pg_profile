@@ -70,9 +70,23 @@ array_to_string(array
 )
 FROM generate_series(1,20);
 INSERT INTO profile.test_rel_storage_params1(id, val)
-SELECT gs.id, gs.id FROM generate_series(1,100) as gs(id);
+SELECT gs.id, gs.id FROM generate_series(1,1000) as gs(id);
 INSERT INTO profile.test_rel_storage_params2(id, val)
-SELECT gs.id, gs.id FROM generate_series(1,100) as gs(id);
+SELECT gs.id, gs.id FROM generate_series(1,1000) as gs(id);
+UPDATE profile.test_rel_storage_params1 SET val = val + 1 WHERE id % 2 = 0;
+UPDATE profile.test_rel_storage_params2 SET val = val + 1 WHERE id % 2 = 1;
+SELECT count(*) FROM profile.test_rel_storage_params1 WHERE id < 100;
+ count 
+-------
+    99
+(1 row)
+
+SELECT count(*) FROM profile.test_rel_storage_params2 WHERE id < 100;
+ count 
+-------
+    99
+(1 row)
+
 SELECT * FROM profile.dummy_func();
  dummy_func 
 ------------
