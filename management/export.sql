@@ -591,6 +591,16 @@ BEGIN
       (utl.server_id, utl.datid, utl.relid) =
       (sserver_id, tl.datid, tl.relid);
 
+    UPDATE sequences_list usl SET last_sample_id = s_id - 1
+    FROM sequences_list sl LEFT JOIN sample_stat_sequences cur
+      ON (cur.server_id, cur.sample_id, cur.datid, cur.relid) =
+        (sserver_id, s_id, sl.datid, sl.relid)
+    WHERE
+      sl.last_sample_id IS NULL AND
+      sl.server_id = sserver_id AND cur.server_id IS NULL AND
+      (usl.server_id, usl.datid, usl.relid) =
+      (sserver_id, sl.datid, sl.relid);
+
     UPDATE stmt_list slu SET last_sample_id = s_id - 1
     FROM sample_statements ss RIGHT JOIN stmt_list sl
       ON (ss.server_id, ss.sample_id, ss.queryid_md5) =
@@ -622,6 +632,8 @@ BEGIN
     DELETE FROM last_stat_indexes WHERE server_id=sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_io WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_kcache WHERE server_id = sserver_id AND sample_id != s_id;
+    DELETE FROM last_stat_lock WHERE server_id = sserver_id AND sample_id != s_id;
+    DELETE FROM last_stat_sequences WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_slru WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_statements WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_tables WHERE server_id=sserver_id AND sample_id != s_id;
@@ -4014,7 +4026,7 @@ BEGIN
           dr.datid,
           dr.extname,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.extversion
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -4024,10 +4036,8 @@ BEGIN
             last_sample_id   integer,
             extversion       text
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_extension_versions DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -4074,7 +4084,7 @@ BEGIN
           dr.datid,
           dr.relid,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -4084,10 +4094,8 @@ BEGIN
             last_sample_id   integer,
             reloptions       jsonb
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_table_storage_parameters DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -4106,7 +4114,7 @@ BEGIN
           dr.relid,
           dr.indexrelid,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -4117,10 +4125,8 @@ BEGIN
             last_sample_id   integer,
             reloptions       jsonb
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_index_storage_parameters DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -4527,7 +4533,7 @@ BEGIN
           dr.usename,
           dr.application_name,
           dr.client_addr,
-          dr.last_sample_id
+          s.sample_id
         FROM json_to_record(datarow.row_data) AS dr(
             server_id         integer,
             sess_attr_id      integer,
@@ -4540,10 +4546,8 @@ BEGIN
             client_addr       inet,
             last_sample_id    integer
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_subsample_sa DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;

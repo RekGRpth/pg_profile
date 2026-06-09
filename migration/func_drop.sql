@@ -48,3 +48,5 @@ DROP FUNCTION take_sample(integer, boolean);
 DROP FUNCTION top_indexes_format;
 DROP FUNCTION delete_samples(integer, integer, integer);
 DROP FUNCTION get_report_datasets;
+
+DROP FUNCTION import_data;

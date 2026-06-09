@@ -34,3 +34,6 @@
 /^CREATE FUNCTION delete_samples(IN server_id integer\, IN start_id integer = NULL\, IN end_id integer = NULL.*$/,/\$\$[[:space:]]*LANGUAGE[[:space:]]\+\(plpg\)\?sql[[:space:]]*;[[:space:]]*$/p
 /^COMMENT ON FUNCTION delete_samples(integer\, integer\, integer.*$/,/';$/p
 /^CREATE FUNCTION get_report_datasets(.*$/,/\$\$[[:space:]]*LANGUAGE[[:space:]]\+\(plpg\)\?sql[[:space:]]*;[[:space:]]*$/p
+
+/^CREATE FUNCTION import_data(.*$/,/\$\$[[:space:]]*LANGUAGE[[:space:]]\+\(plpg\)\?sql[[:space:]]*;[[:space:]]*$/p
+/^COMMENT ON FUNCTION import_data(.*$/,/';$/p
