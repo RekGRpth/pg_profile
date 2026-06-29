@@ -1,5 +1,5 @@
 INSERT INTO import_queries_version_order VALUES
-('pg_profile','4.13','pg_profile','4.11')
+('pg_profile','4.14','pg_profile','4.11')
 ;
 
 DELETE FROM report_struct;
