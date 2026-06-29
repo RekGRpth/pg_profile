@@ -1,17 +1,4 @@
 /* ===== Statements stats functions ===== */
-CREATE FUNCTION profile_checkavail_top_temp(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
-    -- Check if top_temp is available
-    SELECT COUNT(*) > 0
-    FROM sample_statements_total st
-    WHERE
-        server_id = sserver_id AND
-        sample_id BETWEEN start_id + 1 AND end_id AND
-        COALESCE(st.temp_blks_read, 0) + COALESCE(st.temp_blks_written, 0) +
-        COALESCE(st.local_blks_read, 0) + COALESCE(st.local_blks_written, 0) > 0
-$$ LANGUAGE sql;
-
 CREATE FUNCTION top_statements(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     server_id               integer,

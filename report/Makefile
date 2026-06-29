@@ -6,7 +6,6 @@ report_files = \
 	functions/dead_mods_ix_unused.sql \
 	functions/functionstat.sql \
 	functions/indexstat.sql \
-	functions/kcachestat_checks.sql \
 	functions/kcachestat.sql \
 	functions/settings.sql \
 	functions/statements_checks.sql \

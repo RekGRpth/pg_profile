@@ -74,26 +74,8 @@ BEGIN
         'cluster_stats_reset', profile_checkavail_cluster_stats_reset(sserver_id, start1_id, end1_id),
         'wal_stats_reset', profile_checkavail_wal_stats_reset(sserver_id, start1_id, end1_id),
         'statstatements',profile_checkavail_statstatements(sserver_id, start1_id, end1_id),
-        'planning_times',profile_checkavail_planning_times(sserver_id, start1_id, end1_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id),
-        'io_times',profile_checkavail_io_times(sserver_id, start1_id, end1_id),
-        'statement_wal_bytes',profile_checkavail_stmt_wal_bytes(sserver_id, start1_id, end1_id),
-        'statements_top_temp', profile_checkavail_top_temp(sserver_id, start1_id, end1_id),
-        'statements_temp_io_times', profile_checkavail_statements_temp_io_times(sserver_id, start1_id, end1_id),
         'wal_stats',profile_checkavail_walstats(sserver_id, start1_id, end1_id),
-        'sess_stats',profile_checkavail_sessionstats(sserver_id, start1_id, end1_id),
-        'function_stats',profile_checkavail_functions(sserver_id, start1_id, end1_id),
-        'trigger_function_stats',profile_checkavail_trg_functions(sserver_id, start1_id, end1_id),
-        'kcachestatements',profile_checkavail_rusage(sserver_id,start1_id,end1_id),
-        'rusage_planstats',profile_checkavail_rusage_planstats(sserver_id,start1_id,end1_id),
-        'statements_jit_stats',profile_checkavail_statements_jit_stats(sserver_id, start1_id, end1_id),
-        'top_tables_dead', profile_checkavail_tbl_top_dead(sserver_id,start1_id,end1_id),
-        'top_tables_mods', profile_checkavail_tbl_top_mods(sserver_id,start1_id,end1_id),
-        'table_new_page_updates', (
-          SELECT COALESCE(sum(n_tup_newpage_upd), 0) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
-        ),
         'stat_io', (
           SELECT COUNT(*) > 0 FROM (
             SELECT backend_type
@@ -130,50 +112,6 @@ BEGIN
             GROUP BY name
           ) gr
         ),
-        'buffers_backend', (
-          SELECT COUNT(buffers_backend) > 0 FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-        ),
-        'mean_mm_times', (
-          SELECT COUNT(COALESCE(mean_max_exec_time, mean_min_exec_time,
-              mean_max_plan_time, mean_min_plan_time)
-            ) > 0
-          FROM sample_statements_total
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-        ),
-        -- statements_cover should be used to control appearance of the cover field.
-        'statements_coverage', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND stats_since > start1_time AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'statements_jit_deform', (
-          SELECT count(*) > 0
-          FROM sample_statements_total
-          WHERE server_id = sserver_id AND jit_deform_count > 0 AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'checksum_fail_detected', COALESCE((
-          SELECT sum(checksum_failures) > 0
-          FROM sample_stat_database
-          WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
-          ), false),
-        'extension_versions', (
-          SELECT count(*) > 0
-          FROM v_extension_versions
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id AND end1_id
-          ),
-        'extension_versions_show_date_columns', (
-          SELECT count(*) > 0
-          FROM v_extension_versions
-          WHERE server_id = sserver_id AND
-            sample_id BETWEEN start1_id AND end1_id AND
-            (first_seen > start1_time OR last_sample_id < end1_id)
-          ),
         'table_storage_parameters', (
           SELECT count(*) > 0
           FROM v_table_storage_parameters
@@ -185,53 +123,7 @@ BEGIN
           FROM v_index_storage_parameters
           WHERE server_id = sserver_id AND
             sample_id BETWEEN start1_id AND end1_id
-          ),
-        'statements_workers_stats', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND greatest(parallel_workers_to_launch,parallel_workers_launched) > 0 AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'wal_buffers_full', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND wal_buffers_full > 0 AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'vacuum_time', (
-          SELECT count(*) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND
-            total_vacuum_time + total_autovacuum_time > 0  AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'analyze_time', (
-          SELECT count(*) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND
-            total_analyze_time + total_autoanalyze_time > 0  AND
-            sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'db_parallel_workers', (
-          SELECT count(*) > 0
-          FROM sample_stat_database
-          WHERE server_id = sserver_id AND greatest(parallel_workers_to_launch, parallel_workers_launched) > 0 AND
-          sample_id BETWEEN start1_id + 1 AND end1_id
-          ),
-        'checkpoints_done_and_slru', (
-          SELECT COUNT(*) > 0
-          FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND
-            greatest(slru_checkpoint, checkpoints_done) > 0 AND
-            sample_id BETWEEN start1_id AND end1_id
-          ),
-        'restartpoints', (
-          SELECT COUNT(*) > 0
-          FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND
-            greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0 AND
-            sample_id BETWEEN start1_id AND end1_id
-        )
+          )
       ),
       'report_properties',jsonb_build_object(
         'interval_duration_sec',
@@ -249,6 +141,118 @@ BEGIN
         'report_end1_ut', end1_time_ut
         )
       );
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE n_tup_newpage_upd > 0) > 0 as table_new_page_updates,
+          count(*) FILTER (WHERE greatest(total_vacuum_time, total_autovacuum_time) > 0) > 0  as vacuum_time,
+          count(*) FILTER (WHERE greatest(total_analyze_time, total_autoanalyze_time) > 0) > 0 as analyze_time
+        FROM sample_stat_tables_total
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(buffers_backend) > 0 as buffers_backend,
+          count(*) FILTER (WHERE greatest(slru_checkpoint, checkpoints_done) > 0) > 0 as checkpoints_done_and_slru,
+          count(*) FILTER (WHERE greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0) > 0 as restartpoints
+        FROM sample_stat_cluster
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- statements_cover should be used to control appearance of the cover field.
+          count(*) FILTER (WHERE stats_since > start1_time) > 0 as statements_coverage,
+          count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as statements_workers_stats,
+          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full
+        FROM sample_statements
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE jit_deform_count > 0) > 0 as statements_jit_deform,
+          count(*) FILTER (WHERE greatest(jit_functions, jit_inlining_count, jit_optimization_count, jit_emission_count) > 0) > 0 as statements_jit_stats,
+          -- Check if we have planning times collected for report interval
+          count(*) FILTER (WHERE greatest(temp_blk_read_time, temp_blk_write_time) > 0) > 0 as statements_temp_io_times,
+          -- Check if top_temp is available
+          count(*) FILTER (WHERE greatest(temp_blks_read, temp_blks_written, local_blks_read, local_blks_written) > 0) > 0 as statements_top_temp,
+          -- Check if we have statement wal sizes collected for report interval
+          count(*) FILTER (WHERE wal_bytes > 0) > 0  as statement_wal_bytes,
+          -- Check if we have planning times collected for report interval
+          count(*) FILTER (WHERE total_plan_time > 0) > 0  as planning_times,
+          count(COALESCE(mean_max_exec_time, mean_min_exec_time,mean_max_plan_time, mean_min_plan_time)) > 0 as mean_mm_times
+        FROM sample_statements_total
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) > 0 as extension_versions,
+          count(*) FILTER (WHERE first_seen > start1_time OR last_sample_id < end1_id) > 0 as extension_versions_show_date_columns
+        FROM v_extension_versions
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE checksum_failures > 0) > 0 as checksum_fail_detected,
+          count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as db_parallel_workers,
+          -- Check if there is table sizes collected in both bounds
+          count(*) FILTER (WHERE num_nonnulls(session_time,active_time,idle_in_transaction_time,sessions,sessions_abandoned,sessions_fatal,sessions_killed) > 0) > 0 as sess_stats,
+          -- Check if we have I/O times collected for report interval
+          count(*) FILTER (WHERE greatest(blk_read_time, blk_write_time) > 0) > 0 as io_times
+        FROM sample_stat_database
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE st.n_dead_tup > 0) > 0 as top_tables_dead,
+          count(*) FILTER (WHERE st.relkind IN ('r','m') AND n_mod_since_analyze > 0 AND n_live_tup + n_dead_tup > 0) > 0 as top_tables_mods
+        FROM v_sample_stat_tables st
+          JOIN sample_stat_database sample_db USING (server_id, sample_id, datid)
+        WHERE st.server_id = sserver_id AND NOT sample_db.datistemplate AND sample_id = end1_id
+          -- Min 5 MB in size
+          AND COALESCE(st.relsize,st.relpages_bytes) > 5 * 1024^2
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- Check if we have function calls collected for report interval
+          count(*) > 0 as function_stats,
+          -- Check if we have trigger function calls collected for report interval
+          count(*) FILTER (WHERE trg_fn) > 0 as trigger_function_stats
+        FROM sample_stat_user_func_total
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id AND calls > 0
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE exec_user_time > 0) > 0 as kcachestatements,
+          count(*) FILTER (WHERE plan_user_time > 0) > 0 as rusage_planstats
+        FROM sample_kcache_total
+        WHERE server_id = sserver_id AND sample_id BETWEEN start1_id + 1 AND end1_id
+      ) ft;
 
       -- stat_activity features
       IF has_table_privilege('sample_act_backend', 'SELECT') THEN
@@ -340,39 +344,10 @@ BEGIN
           profile_checkavail_wal_stats_reset(sserver_id, start2_id, end2_id),
         'statstatements',profile_checkavail_statstatements(sserver_id, start1_id, end1_id) OR
           profile_checkavail_statstatements(sserver_id, start2_id, end2_id),
-        'planning_times',profile_checkavail_planning_times(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_planning_times(sserver_id, start2_id, end2_id),
         'wait_sampling_tot',profile_checkavail_wait_sampling_total(sserver_id, start1_id, end1_id) OR
           profile_checkavail_wait_sampling_total(sserver_id, start2_id, end2_id),
-        'io_times',profile_checkavail_io_times(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_io_times(sserver_id, start2_id, end2_id),
-        'statement_wal_bytes',profile_checkavail_stmt_wal_bytes(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_stmt_wal_bytes(sserver_id, start2_id, end2_id),
-        'statements_top_temp', profile_checkavail_top_temp(sserver_id, start1_id, end1_id) OR
-            profile_checkavail_top_temp(sserver_id, start2_id, end2_id),
-        'statements_temp_io_times', profile_checkavail_statements_temp_io_times(sserver_id, start1_id, end1_id) OR
-            profile_checkavail_statements_temp_io_times(sserver_id, start2_id, end2_id),
         'wal_stats',profile_checkavail_walstats(sserver_id, start1_id, end1_id) OR
           profile_checkavail_walstats(sserver_id, start2_id, end2_id),
-        'sess_stats',profile_checkavail_sessionstats(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_sessionstats(sserver_id, start2_id, end2_id),
-        'function_stats',profile_checkavail_functions(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_functions(sserver_id, start2_id, end2_id),
-        'trigger_function_stats',profile_checkavail_trg_functions(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_trg_functions(sserver_id, start2_id, end2_id),
-        'kcachestatements',profile_checkavail_rusage(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_rusage(sserver_id, start2_id, end2_id),
-        'rusage_planstats',profile_checkavail_rusage_planstats(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_rusage_planstats(sserver_id, start2_id, end2_id),
-        'statements_jit_stats',profile_checkavail_statements_jit_stats(sserver_id, start1_id, end1_id) OR
-          profile_checkavail_statements_jit_stats(sserver_id, start2_id, end2_id),
-        'table_new_page_updates', (
-          SELECT COALESCE(sum(n_tup_newpage_upd), 0) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-        ),
         'stat_io', (
           SELECT COUNT(*) > 0 FROM (
             SELECT backend_type
@@ -419,60 +394,6 @@ BEGIN
             GROUP BY name
           ) gr
         ),
-        'buffers_backend', (
-          SELECT COUNT(buffers_backend) > 0 FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND (
-              sample_id BETWEEN start1_id AND end1_id OR
-              sample_id BETWEEN start2_id AND end2_id
-            )
-        ),
-        'mean_mm_times', (
-          SELECT COUNT(COALESCE(mean_max_exec_time, mean_min_exec_time,
-              mean_max_plan_time, mean_min_plan_time)
-            ) > 0
-          FROM sample_statements_total
-          WHERE server_id = sserver_id AND (
-              sample_id BETWEEN start1_id AND end1_id OR
-              sample_id BETWEEN start2_id AND end2_id
-            )
-        ),
-        -- statements_cover should be used to control appearance of the cover field.
-        'statements_coverage', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND
-            ((stats_since > start1_time AND sample_id BETWEEN start1_id + 1 AND end1_id) OR
-            (stats_since > start2_time AND sample_id BETWEEN start2_id + 1 AND end2_id))
-          ),
-        'statements_jit_deform', (
-          SELECT count(*) > 0
-          FROM sample_statements_total
-          WHERE server_id = sserver_id AND jit_deform_count > 0 AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'checksum_fail_detected', COALESCE((
-          SELECT sum(checksum_failures) > 0
-          FROM sample_stat_database
-          WHERE server_id = sserver_id AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ), false),
-        'extension_versions', (
-          SELECT count(*) > 0
-          FROM v_extension_versions
-          WHERE server_id = sserver_id AND
-            (sample_id BETWEEN start1_id AND end1_id OR
-            sample_id BETWEEN start2_id AND end2_id)
-          ),
-        'extension_versions_show_date_columns', (
-          SELECT count(*) > 0
-          FROM v_extension_versions
-          WHERE server_id = sserver_id AND
-            (sample_id BETWEEN start1_id AND end1_id OR
-            sample_id BETWEEN start2_id AND end2_id) AND
-            (first_seen > least(start1_time, start2_time) OR last_sample_id < greatest(end1_id, end2_id))
-          ),
         'table_storage_parameters', (
           SELECT count(*) > 0
           FROM v_table_storage_parameters
@@ -484,63 +405,7 @@ BEGIN
           FROM v_index_storage_parameters
           WHERE server_id = sserver_id AND
             sample_id BETWEEN start1_id AND end1_id
-          ),
-        'statements_workers_stats', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND
-            greatest(parallel_workers_to_launch, parallel_workers_launched) > 0 AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'wal_buffers_full', (
-          SELECT count(*) > 0
-          FROM sample_statements
-          WHERE server_id = sserver_id AND wal_buffers_full > 0 AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'vacuum_time', (
-          SELECT count(*) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND
-            total_vacuum_time + total_autovacuum_time > 0  AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'analyze_time', (
-          SELECT count(*) > 0
-          FROM sample_stat_tables_total
-          WHERE server_id = sserver_id AND
-            total_analyze_time + total_autoanalyze_time > 0  AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'db_parallel_workers', (
-          SELECT count(*) > 0
-          FROM sample_stat_database
-          WHERE server_id = sserver_id AND greatest(parallel_workers_to_launch, parallel_workers_launched) > 0 AND
-            (sample_id BETWEEN start1_id + 1 AND end1_id OR
-            sample_id BETWEEN start2_id + 1 AND end2_id)
-          ),
-        'checkpoints_done_and_slru', (
-          SELECT COUNT(*) > 0
-          FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND
-            greatest(slru_checkpoint, checkpoints_done) > 0 AND (
-              sample_id BETWEEN start1_id AND end1_id OR
-              sample_id BETWEEN start2_id AND end2_id
-            )
-          ),
-        'restartpoints', (
-          SELECT COUNT(*) > 0
-          FROM sample_stat_cluster
-          WHERE server_id = sserver_id AND
-            greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0 AND (
-              sample_id BETWEEN start1_id AND end1_id OR
-              sample_id BETWEEN start2_id AND end2_id
-            )
-        )
+          )
       ),
       'report_properties', jsonb_build_object(
         'interval1_duration_sec',
@@ -572,6 +437,130 @@ BEGIN
         'report_end2_ut', end2_time_ut
         )
       );
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          COALESCE(sum(n_tup_newpage_upd), 0) > 0 as table_new_page_updates,
+          count(*) FILTER (WHERE greatest(total_vacuum_time, total_autovacuum_time) > 0) > 0  as vacuum_time,
+          count(*) FILTER (WHERE greatest(total_analyze_time, total_autoanalyze_time) > 0) > 0 as analyze_time
+        FROM sample_stat_tables_total
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(buffers_backend) > 0 as buffers_backend,
+          count(*) FILTER (WHERE greatest(slru_checkpoint, checkpoints_done) > 0) > 0 as checkpoints_done_and_slru,
+          count(*) FILTER (WHERE greatest(restartpoints_timed, restartpoints_req, restartpoints_done) > 0) > 0 as restartpoints
+        FROM sample_stat_cluster
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- statements_cover should be used to control appearance of the cover field.
+          count(*) FILTER (WHERE (stats_since > start1_time AND sample_id BETWEEN start1_id + 1 AND end1_id) OR
+            (stats_since > start2_time AND sample_id BETWEEN start2_id + 1 AND end2_id)) > 0 as statements_coverage,
+          count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as statements_workers_stats,
+          count(*) FILTER (WHERE wal_buffers_full > 0 ) > 0 as wal_buffers_full
+        FROM sample_statements
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE jit_deform_count > 0) > 0 as statements_jit_deform,
+          count(*) FILTER (WHERE greatest(jit_functions, jit_inlining_count, jit_optimization_count, jit_emission_count) > 0) > 0 as statements_jit_stats,
+          -- Check if we have planning times collected for report interval
+          count(*) FILTER (WHERE greatest(temp_blk_read_time, temp_blk_write_time) > 0) > 0 as statements_temp_io_times,
+          -- Check if top_temp is available
+          count(*) FILTER (WHERE greatest(temp_blks_read, temp_blks_written, local_blks_read, local_blks_written) > 0) > 0 as statements_top_temp,
+          -- Check if we have statement wal sizes collected for report interval
+          count(*) FILTER (WHERE wal_bytes > 0) > 0  as statement_wal_bytes,
+          -- Check if we have planning times collected for report interval
+          count(*) FILTER (WHERE total_plan_time > 0) > 0  as planning_times,
+          count(COALESCE(mean_max_exec_time, mean_min_exec_time,mean_max_plan_time, mean_min_plan_time)) > 0 as mean_mm_times
+        FROM sample_statements_total
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) > 0 as extension_versions,
+          count(*) FILTER (WHERE first_seen > least(start1_time, start2_time) OR last_sample_id < greatest(end1_id, end2_id)) > 0 as extension_versions_show_date_columns
+        FROM v_extension_versions
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id AND end1_id OR
+          sample_id BETWEEN start2_id AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE checksum_failures > 0) > 0 as checksum_fail_detected,
+          count(*) FILTER (WHERE greatest(parallel_workers_to_launch, parallel_workers_launched) > 0) > 0 as db_parallel_workers,
+          -- Check if there is table sizes collected in both bounds
+          count(*) FILTER (WHERE num_nonnulls(session_time,active_time,idle_in_transaction_time,sessions,sessions_abandoned,sessions_fatal,sessions_killed) > 0) > 0 as sess_stats,
+          -- Check if we have I/O times collected for report interval
+          count(*) FILTER (WHERE greatest(blk_read_time, blk_write_time) > 0) > 0 as io_times
+        FROM sample_stat_database
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          -- Check if we have function calls collected for report interval
+          count(*) > 0 as function_stats,
+          -- Check if we have trigger function calls collected for report interval
+          count(*) FILTER (WHERE trg_fn) > 0 as trigger_function_stats
+        FROM sample_stat_user_func_total
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          ) AND calls > 0
+      ) ft;
+
+      SELECT jsonb_set(report_context, '{report_features}', report_context->'report_features' || row_to_json(ft.*)::jsonb)
+      INTO report_context
+      FROM (
+        SELECT
+          count(*) FILTER (WHERE exec_user_time > 0) > 0 as kcachestatements,
+          count(*) FILTER (WHERE plan_user_time > 0) > 0 as rusage_planstats
+        FROM sample_kcache_total
+        WHERE server_id = sserver_id AND (
+          sample_id BETWEEN start1_id + 1 AND end1_id OR
+          sample_id BETWEEN start2_id + 1 AND end2_id
+          )
+      ) ft;
 
       -- stat_activity features
       IF has_table_privilege('sample_act_backend', 'SELECT') THEN

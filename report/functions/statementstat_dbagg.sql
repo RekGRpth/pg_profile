@@ -8,41 +8,6 @@ SET search_path=@extschema@ AS $$
   FROM samples sn LEFT OUTER JOIN sample_statements_total st USING (server_id, sample_id)
   WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
 $$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_planning_times(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if we have planning times collected for report interval
-  SELECT COALESCE(sum(total_plan_time), 0) > 0
-  FROM sample_statements_total sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_stmt_wal_bytes(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if we have statement wal sizes collected for report interval
-  SELECT COALESCE(sum(wal_bytes), 0) > 0
-  FROM sample_statements_total sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_statements_jit_stats(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
-    SELECT COALESCE(sum(jit_functions + jit_inlining_count + jit_optimization_count + jit_emission_count), 0) > 0
-    FROM sample_statements_total
-    WHERE server_id = sserver_id AND sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_statements_temp_io_times(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if we have planning times collected for report interval
-  SELECT COALESCE(sum(temp_blk_read_time), 0) + COALESCE(sum(temp_blk_write_time), 0) > 0
-  FROM sample_statements_total sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
 /* ========= Statement stats functions ========= */
 
 CREATE FUNCTION statements_dbstats(IN sserver_id integer, IN start_id integer, IN end_id integer)

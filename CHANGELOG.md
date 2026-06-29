@@ -3,6 +3,7 @@
 ## 4.13
 - Added sorting in some dataset functions and report_struct
 - Added tests for comparing datasets during export-import regression test
+- get_report_context perfomance improved
 
 ## 4.11
 - pg_profile dump import optimization
