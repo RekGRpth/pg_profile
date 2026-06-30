@@ -1,16 +1,4 @@
 /* ===== Cluster stats functions ===== */
-CREATE FUNCTION profile_checkavail_walstats(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if there is WAL stats collected
-  SELECT
-    count(wal_bytes) > 0
-  FROM sample_stat_wal
-  WHERE
-    server_id = sserver_id
-    AND sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
 CREATE FUNCTION wal_stats_reset(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
         sample_id        integer,
@@ -28,22 +16,17 @@ SET search_path=@extschema@ AS $$
   ORDER BY ws1.sample_id ASC
 $$ LANGUAGE sql;
 
-CREATE FUNCTION profile_checkavail_wal_stats_reset(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
-    -- Check if wal statistics were reset
-  SELECT count(*) > 0 FROM wal_stats_reset(sserver_id, start_id, end_id)
-$$ LANGUAGE sql;
-
 CREATE FUNCTION wal_stats_reset_format(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
   sample_id       integer,
-  wal_stats_reset text
+  wal_stats_reset text,
+  ord_sample      integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
-    wal_stats_reset::text
+    wal_stats_reset::text,
+    row_number() OVER (ORDER BY sample_id ASC) AS ord_sample
   FROM
     wal_stats_reset(sserver_id, start_id, end_id)
 $$ LANGUAGE sql;
@@ -54,22 +37,30 @@ CREATE FUNCTION wal_stats_reset_format_diff(IN sserver_id integer,
 RETURNS TABLE(
   interval_num    integer,
   sample_id       integer,
-  wal_stats_reset text
+  wal_stats_reset text,
+  ord_sample      integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
-    1 AS interval_num,
+    interval_num,
     sample_id,
-    wal_stats_reset::text
-  FROM
-    wal_stats_reset(sserver_id, start1_id, end1_id)
-  UNION
-  SELECT
-    2 AS interval_num,
-    sample_id,
-    wal_stats_reset::text
-  FROM
-    wal_stats_reset(sserver_id, start2_id, end2_id)
+    wal_stats_reset,
+    row_number() OVER (ORDER BY interval_num ASC, sample_id ASC) AS ord_sample
+  FROM (
+    SELECT
+      1 AS interval_num,
+      sample_id,
+      wal_stats_reset::text AS wal_stats_reset
+    FROM
+      wal_stats_reset(sserver_id, start1_id, end1_id)
+    UNION
+    SELECT
+      2 AS interval_num,
+      sample_id,
+      wal_stats_reset::text AS wal_stats_reset
+    FROM
+      wal_stats_reset(sserver_id, start2_id, end2_id)
+  ) w;
 $$ LANGUAGE sql;
 
 CREATE FUNCTION wal_stats(IN sserver_id integer, IN start_id integer, IN end_id integer)
@@ -78,6 +69,7 @@ RETURNS TABLE(
   wal_records         bigint,
   wal_fpi             bigint,
   wal_bytes           numeric,
+  wal_fpi_bytes       numeric,
   wal_buffers_full    bigint,
   wal_write           bigint,
   wal_sync            bigint,
@@ -90,6 +82,7 @@ SET search_path=@extschema@ AS $$
     wal_records,
     wal_fpi,
     wal_bytes,
+    wal_fpi_bytes,
     wal_buffers_full,
     coalesce(sio.wal_write,sw.wal_write) as wal_write,
     coalesce(sio.wal_sync,sw.wal_sync) as wal_sync,
@@ -101,6 +94,7 @@ SET search_path=@extschema@ AS $$
       sum(wal_records)::bigint as wal_records,
       sum(wal_fpi)::bigint as wal_fpi,
       sum(wal_bytes)::numeric as wal_bytes,
+      sum(wal_fpi_bytes)::numeric as wal_fpi_bytes,
       sum(wal_buffers_full)::bigint as wal_buffers_full,
       sum(wal_write)::bigint as wal_write,
       sum(wal_sync)::bigint as wal_sync,
@@ -130,6 +124,9 @@ RETURNS TABLE(
   wal_bytes         numeric,
   wal_bytes_text    text,
   wal_bytes_per_sec text,
+  wal_fpi_bytes         numeric,
+  wal_fpi_bytes_text    text,
+  wal_fpi_bytes_per_sec text,
   wal_buffers_full  bigint,
   wal_write         bigint,
   wal_write_per_sec numeric,
@@ -147,6 +144,9 @@ SET search_path=@extschema@ AS $$
     NULLIF(wal_bytes, 0)::numeric,
     pg_size_pretty(NULLIF(wal_bytes, 0)),
     pg_size_pretty(round(NULLIF(wal_bytes, 0)/NULLIF(duration, 0))::bigint),
+    NULLIF(wal_fpi_bytes, 0)::numeric,
+    pg_size_pretty(NULLIF(wal_fpi_bytes, 0)),
+    pg_size_pretty(round(NULLIF(wal_fpi_bytes, 0)/NULLIF(duration, 0))::bigint),
     NULLIF(wal_buffers_full, 0)::bigint,
     NULLIF(wal_write, 0)::bigint,
     round((NULLIF(wal_write, 0)/NULLIF(duration, 0))::numeric,2),
@@ -170,6 +170,9 @@ RETURNS TABLE(
   wal_bytes1         bigint,
   wal_bytes_text1    text,
   wal_bytes_per_sec1 text,
+  wal_fpi_bytes1         bigint,
+  wal_fpi_bytes_text1    text,
+  wal_fpi_bytes_per_sec1 text,
   wal_buffers_full1  bigint,
   wal_write1         bigint,
   wal_write_per_sec1 numeric,
@@ -185,6 +188,9 @@ RETURNS TABLE(
   wal_bytes2         bigint,
   wal_bytes_text2    text,
   wal_bytes_per_sec2 text,
+  wal_fpi_bytes2         bigint,
+  wal_fpi_bytes_text2    text,
+  wal_fpi_bytes_per_sec2 text,
   wal_buffers_full2  bigint,
   wal_write2         bigint,
   wal_write_per_sec2 numeric,
@@ -202,6 +208,9 @@ SET search_path=@extschema@ AS $$
     NULLIF(ws1.wal_bytes, 0)::bigint,
     pg_size_pretty(NULLIF(ws1.wal_bytes, 0)),
     pg_size_pretty(round(NULLIF(ws1.wal_bytes, 0)/NULLIF(duration1, 0))::bigint),
+    NULLIF(ws1.wal_fpi_bytes, 0)::bigint,
+    pg_size_pretty(NULLIF(ws1.wal_fpi_bytes, 0)),
+    pg_size_pretty(round(NULLIF(ws1.wal_fpi_bytes, 0)/NULLIF(duration1, 0))::bigint),
     NULLIF(ws1.wal_buffers_full, 0)::bigint,
     NULLIF(ws1.wal_write, 0)::bigint,
     round((NULLIF(ws1.wal_write, 0)/NULLIF(duration1, 0))::numeric,2),
@@ -217,6 +226,9 @@ SET search_path=@extschema@ AS $$
     NULLIF(ws2.wal_bytes, 0)::bigint,
     pg_size_pretty(NULLIF(ws2.wal_bytes, 0)),
     pg_size_pretty(round(NULLIF(ws2.wal_bytes, 0)/NULLIF(duration2, 0))::bigint),
+    NULLIF(ws2.wal_fpi_bytes, 0)::bigint,
+    pg_size_pretty(NULLIF(ws2.wal_fpi_bytes, 0)),
+    pg_size_pretty(round(NULLIF(ws2.wal_fpi_bytes, 0)/NULLIF(duration2, 0))::bigint),
     NULLIF(ws2.wal_buffers_full, 0)::bigint,
     NULLIF(ws2.wal_write, 0)::bigint,
     round((NULLIF(ws2.wal_write, 0)/NULLIF(duration2, 0))::numeric,2),

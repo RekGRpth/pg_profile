@@ -1,5 +1,5 @@
 UPDATE profile.samples
-SET sample_time = now() - (5 - sample_id) * '1 day'::interval - '10 minutes'::interval
+SET sample_time = now() - (5 - sample_id) * '1 day'::interval - '30 minutes'::interval
 WHERE sample_id <= 5;
 
 ALTER TABLE profile.test_rel_storage_params1 RESET (autovacuum_vacuum_threshold,fillfactor,autovacuum_enabled);

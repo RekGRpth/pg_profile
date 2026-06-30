@@ -1,17 +1,4 @@
 /* ===== Statements stats functions ===== */
-CREATE FUNCTION profile_checkavail_top_temp(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
-    -- Check if top_temp is available
-    SELECT COUNT(*) > 0
-    FROM sample_statements_total st
-    WHERE
-        server_id = sserver_id AND
-        sample_id BETWEEN start_id + 1 AND end_id AND
-        COALESCE(st.temp_blks_read, 0) + COALESCE(st.temp_blks_written, 0) +
-        COALESCE(st.local_blks_read, 0) + COALESCE(st.local_blks_written, 0) > 0
-$$ LANGUAGE sql;
-
 CREATE FUNCTION top_statements(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     server_id               integer,
@@ -94,6 +81,8 @@ RETURNS TABLE(
     jit_deform_time         double precision,
     parallel_workers_to_launch  bigint,
     parallel_workers_launched   bigint,
+    generic_plan_calls  bigint,
+    custom_plan_calls   bigint,
     stmt_cover              double precision
 ) SET search_path=@extschema@ AS $$
     WITH
@@ -272,6 +261,8 @@ RETURNS TABLE(
         sum(st.jit_deform_time)/1000::double precision AS jit_deform_time,
         sum(st.parallel_workers_to_launch)::bigint AS parallel_workers_to_launch,
         sum(st.parallel_workers_launched)::bigint AS parallel_workers_launched,
+        sum(st.generic_plan_calls)::bigint AS generic_plan_calls,
+        sum(st.custom_plan_calls)::bigint AS custom_plan_calls,
         100 - extract(epoch from sum(CASE
             WHEN st.stats_since <= s_prev.sample_time THEN '0'::interval
             ELSE st.stats_since - s_prev.sample_time
@@ -387,6 +378,8 @@ RETURNS TABLE(
     jit_deform_time         numeric,
     parallel_workers_to_launch  bigint,
     parallel_workers_launched   bigint,
+    generic_plan_calls      bigint,
+    custom_plan_calls       bigint,
     stmt_cover              numeric,
     sum_tmp_blks            bigint,
     sum_jit_time            numeric,
@@ -496,6 +489,8 @@ SET search_path=@extschema@ AS $$
     round(CAST(NULLIF(st.jit_deform_time, 0.0) AS numeric), 2),
     NULLIF(st.parallel_workers_to_launch, 0),
     NULLIF(st.parallel_workers_launched, 0),
+    NULLIF(st.generic_plan_calls, 0),
+    NULLIF(st.custom_plan_calls, 0),
     round(CAST(NULLIF(st.stmt_cover, 0.0) AS numeric)),
     COALESCE(st.temp_blks_read, 0) +
         COALESCE(st.temp_blks_written, 0) +
@@ -717,6 +712,8 @@ RETURNS TABLE(
     jit_deform_time1         numeric,
     parallel_workers_to_launch1 bigint,
     parallel_workers_launched1  bigint,
+    generic_plan_calls1      bigint,
+    custom_plan_calls1       bigint,
     stmt_cover1              numeric,
     --Second Interval
     plans2                   bigint,
@@ -794,6 +791,8 @@ RETURNS TABLE(
     jit_deform_time2         numeric,
     parallel_workers_to_launch2 bigint,
     parallel_workers_launched2  bigint,
+    generic_plan_calls2      bigint,
+    custom_plan_calls2       bigint,
     stmt_cover2              numeric,
     -- Filter and ordering fields
     sum_tmp_blks             bigint,
@@ -907,6 +906,8 @@ SET search_path=@extschema@ AS $$
     round(CAST(NULLIF(st1.jit_deform_time, 0.0) AS numeric), 2),
     NULLIF(st1.parallel_workers_to_launch, 0),
     NULLIF(st1.parallel_workers_launched, 0),
+    NULLIF(st1.generic_plan_calls, 0),
+    NULLIF(st1.custom_plan_calls, 0),
     round(CAST(NULLIF(st1.stmt_cover, 0.0) AS numeric)),
     -- Second Interval
     NULLIF(st2.plans, 0),
@@ -986,6 +987,8 @@ SET search_path=@extschema@ AS $$
     round(CAST(NULLIF(st2.jit_deform_time, 0.0) AS numeric), 2),
     NULLIF(st2.parallel_workers_to_launch, 0),
     NULLIF(st2.parallel_workers_launched, 0),
+    NULLIF(st2.generic_plan_calls, 0),
+    NULLIF(st2.custom_plan_calls, 0),
     round(CAST(NULLIF(st2.stmt_cover, 0.0) AS numeric)),
     -- Filter and ordering fields
     COALESCE(st1.temp_blks_read, 0) +

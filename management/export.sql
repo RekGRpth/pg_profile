@@ -591,6 +591,16 @@ BEGIN
       (utl.server_id, utl.datid, utl.relid) =
       (sserver_id, tl.datid, tl.relid);
 
+    UPDATE sequences_list usl SET last_sample_id = s_id - 1
+    FROM sequences_list sl LEFT JOIN sample_stat_sequences cur
+      ON (cur.server_id, cur.sample_id, cur.datid, cur.relid) =
+        (sserver_id, s_id, sl.datid, sl.relid)
+    WHERE
+      sl.last_sample_id IS NULL AND
+      sl.server_id = sserver_id AND cur.server_id IS NULL AND
+      (usl.server_id, usl.datid, usl.relid) =
+      (sserver_id, sl.datid, sl.relid);
+
     UPDATE stmt_list slu SET last_sample_id = s_id - 1
     FROM sample_statements ss RIGHT JOIN stmt_list sl
       ON (ss.server_id, ss.sample_id, ss.queryid_md5) =
@@ -622,6 +632,8 @@ BEGIN
     DELETE FROM last_stat_indexes WHERE server_id=sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_io WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_kcache WHERE server_id = sserver_id AND sample_id != s_id;
+    DELETE FROM last_stat_lock WHERE server_id = sserver_id AND sample_id != s_id;
+    DELETE FROM last_stat_sequences WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_slru WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_statements WHERE server_id = sserver_id AND sample_id != s_id;
     DELETE FROM last_stat_tables WHERE server_id=sserver_id AND sample_id != s_id;
@@ -779,7 +791,8 @@ BEGIN
         INSERT INTO sample_stat_cluster(server_id,sample_id,checkpoints_timed,
           checkpoints_req,checkpoints_done,checkpoint_write_time,checkpoint_sync_time,buffers_checkpoint,
           slru_checkpoint,buffers_clean,maxwritten_clean,buffers_backend,buffers_backend_fsync,
-          buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery)
+          buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery,restartpoints_timed,restartpoints_req,
+          restartpoints_done,checkpoint_stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -798,7 +811,11 @@ BEGIN
           dr.stats_reset,
           dr.wal_size,
           dr.wal_lsn,
-          dr.in_recovery
+          dr.in_recovery,
+          dr.restartpoints_timed,
+          dr.restartpoints_req,
+          dr.restartpoints_done,
+          dr.checkpoint_stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
             server_id              integer,
             sample_id              integer,
@@ -817,7 +834,11 @@ BEGIN
             stats_reset            timestamp with time zone,
             wal_size               bigint,
             wal_lsn                pg_lsn,
-            in_recovery            boolean
+            in_recovery            boolean,
+            restartpoints_timed    bigint,
+            restartpoints_req      bigint,
+            restartpoints_done     bigint,
+            checkpoint_stats_reset timestamp with time zone
           )
         JOIN
           samples s_ctl ON
@@ -929,7 +950,7 @@ BEGIN
         FETCH data INTO datarow;
         EXIT WHEN NOT FOUND;
         INSERT INTO sample_stat_wal(server_id,sample_id,wal_records,
-          wal_fpi,wal_bytes,wal_buffers_full,wal_write,wal_sync,
+          wal_fpi,wal_bytes,wal_fpi_bytes,wal_buffers_full,wal_write,wal_sync,
           wal_write_time,wal_sync_time,stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
@@ -937,6 +958,7 @@ BEGIN
           dr.wal_records,
           dr.wal_fpi,
           dr.wal_bytes,
+          dr.wal_fpi_bytes,
           dr.wal_buffers_full,
           dr.wal_write,
           dr.wal_sync,
@@ -949,6 +971,7 @@ BEGIN
             wal_records         bigint,
             wal_fpi             bigint,
             wal_bytes           numeric,
+            wal_fpi_bytes       numeric,
             wal_buffers_full    bigint,
             wal_write           bigint,
             wal_sync            bigint,
@@ -1110,6 +1133,40 @@ BEGIN
             ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
             (s_ctl.server_id, s_ctl.sample_id)
         ON CONFLICT ON CONSTRAINT pk_sample_stat_slru DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
+    WHEN 'sample_stat_lock' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO sample_stat_lock(server_id,sample_id,locktype,waits,
+          wait_time,fastpath_exceeded,stats_reset)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer,
+          dr.sample_id,
+          dr.locktype,
+          dr.waits,
+          dr.wait_time,
+          dr.fastpath_exceeded,
+          dr.stats_reset
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id           integer,
+            sample_id           integer,
+            locktype            text,
+            waits               bigint,
+            wait_time           bigint,
+            fastpath_exceeded   bigint,
+            stats_reset         timestamp with time zone
+          )
+        JOIN
+          samples s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+            (s_ctl.server_id, s_ctl.sample_id)
+        ON CONFLICT ON CONSTRAINT pk_sample_stat_lock DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
         IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
@@ -1322,35 +1379,37 @@ BEGIN
         END IF;
       END LOOP; -- over data rows
     WHEN 'sample_timings' THEN
-      LOOP
-        FETCH data INTO datarow;
-        EXIT WHEN NOT FOUND;
-        INSERT INTO sample_timings(server_id, sample_id, event, exec_point, event_ts)
-        SELECT
-          (srv_map ->> dr.server_id::text)::integer,
-          dr.sample_id,
-          dr.event,
-          dr.exec_point,
-          dr.event_ts
-        FROM json_to_record(datarow.row_data) AS dr(
-            server_id      integer,
-            sample_id      integer,
-            event          text,
-            exec_point     text,
-            event_ts       timestamp
-          )
-         JOIN
-          samples s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
-            (s_ctl.server_id, s_ctl.sample_id)
-        ON CONFLICT ON CONSTRAINT pk_sample_timings
-          DO NOTHING;
-        GET DIAGNOSTICS row_proc = ROW_COUNT;
-        rowcnt := rowcnt + row_proc;
-        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
-          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
-        END IF;
-      END LOOP; -- over data rows
+      IF array_position(versions_array, '4.11:pg_profile') >= 1 THEN
+        LOOP
+          FETCH data INTO datarow;
+          EXIT WHEN NOT FOUND;
+          INSERT INTO sample_timings(server_id, sample_id, event, exec_point, event_ts)
+          SELECT
+            (srv_map ->> dr.server_id::text)::integer,
+            dr.sample_id,
+            dr.event,
+            dr.exec_point,
+            dr.event_ts
+          FROM json_to_record(datarow.row_data) AS dr(
+              server_id      integer,
+              sample_id      integer,
+              event          text,
+              exec_point     text,
+              event_ts       timestamp with time zone
+            )
+           JOIN
+            samples s_ctl ON
+              ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+              (s_ctl.server_id, s_ctl.sample_id)
+          ON CONFLICT ON CONSTRAINT pk_sample_timings
+            DO NOTHING;
+          GET DIAGNOSTICS row_proc = ROW_COUNT;
+          rowcnt := rowcnt + row_proc;
+          IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+            RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+          END IF;
+        END LOOP; -- over data rows
+      END IF;
     WHEN 'tablespaces_list' THEN
       LOOP
         FETCH data INTO datarow;
@@ -1487,6 +1546,40 @@ BEGIN
           RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
         END IF;
       END LOOP; -- over data rows
+    WHEN 'sequences_list' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO sequences_list(server_id, datid, relid, schemaname, relname, last_sample_id)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer,
+          dr.datid,
+          dr.relid,
+          dr.schemaname,
+          dr.relname,
+          s.sample_id
+        FROM json_to_record(datarow.row_data) AS dr(
+            server_id      integer,
+            datid          oid,
+            relid          oid,
+            schemaname     name,
+            relname        name,
+            last_sample_id integer
+          )
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
+        ON CONFLICT ON CONSTRAINT pk_sequences_list DO
+        UPDATE SET (last_sample_id, schemaname, relname) =
+          (EXCLUDED.last_sample_id, EXCLUDED.schemaname, EXCLUDED.relname)
+        WHERE (sequences_list.last_sample_id, sequences_list.schemaname, sequences_list.relname)
+          IS DISTINCT FROM
+          (EXCLUDED.last_sample_id, EXCLUDED.schemaname, EXCLUDED.relname);
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
     WHEN 'sample_statements' THEN
       CASE -- Import version selector
         WHEN array_position(versions_array, '4.7:pg_profile') >= 1 THEN
@@ -1504,7 +1597,8 @@ BEGIN
               jit_inlining_time, jit_optimization_count, jit_optimization_time,
               jit_emission_count, jit_emission_time, temp_blk_read_time, temp_blk_write_time,
               local_blk_read_time, local_blk_write_time, jit_deform_count, jit_deform_time,
-              parallel_workers_to_launch, parallel_workers_launched, stats_since, minmax_stats_since)
+              parallel_workers_to_launch, parallel_workers_launched, generic_plan_calls, custom_plan_calls,
+              stats_since, minmax_stats_since)
             SELECT
               (srv_map ->> dr.server_id::text)::integer,
               dr.sample_id,
@@ -1558,6 +1652,8 @@ BEGIN
               dr.jit_deform_time,
               dr.parallel_workers_to_launch,
               dr.parallel_workers_launched,
+              dr.generic_plan_calls,
+              dr.custom_plan_calls,
               dr.stats_since,
               dr.minmax_stats_since
             FROM json_to_record(datarow.row_data) AS dr(
@@ -1613,6 +1709,8 @@ BEGIN
               jit_deform_time      double precision,
               parallel_workers_to_launch  bigint,
               parallel_workers_launched   bigint,
+              generic_plan_calls  bigint,
+              custom_plan_calls   bigint,
               stats_since          timestamp with time zone,
               minmax_stats_since   timestamp with time zone
               )
@@ -2577,6 +2675,40 @@ BEGIN
           RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
         END IF;
       END LOOP; -- over data rows
+    WHEN 'sample_stat_sequences' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO sample_stat_sequences(server_id,sample_id,datid,relid,tablespaceid,
+          blks_read,blks_hit)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer,
+          dr.sample_id,
+          dr.datid,
+          dr.relid,
+          dr.tablespaceid,
+          dr.blks_read,
+          dr.blks_hit
+        FROM json_to_record(datarow.row_data) AS dr(
+          server_id      integer,
+          sample_id      integer,
+          datid          oid,
+          relid          oid,
+          tablespaceid   oid,
+          blks_read      bigint,
+          blks_hit       bigint
+          )
+        JOIN
+          samples s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+            (s_ctl.server_id, s_ctl.sample_id)
+        ON CONFLICT ON CONSTRAINT pk_sample_stat_sequences DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
     WHEN 'sample_stat_indexes_total' THEN
       LOOP
         FETCH data INTO datarow;
@@ -2817,7 +2949,7 @@ BEGIN
           blk_read_time,blk_write_time,stats_reset,datsize,datsize_delta,datistemplate,
           session_time,active_time,
           idle_in_transaction_time,sessions,sessions_abandoned,sessions_fatal,
-          sessions_killed,parallel_workers_to_launch,parallel_workers_launched)
+          sessions_killed,parallel_workers_to_launch,parallel_workers_launched,dattablespace,datallowconn)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -2852,7 +2984,9 @@ BEGIN
           dr.sessions_fatal,
           dr.sessions_killed,
           dr.parallel_workers_to_launch,
-          dr.parallel_workers_launched
+          dr.parallel_workers_launched,
+          dr.dattablespace,
+          dr.datallowconn
         FROM json_to_record(datarow.row_data) AS dr(
           server_id       integer,
           sample_id       integer,
@@ -2887,7 +3021,9 @@ BEGIN
           parallel_workers_to_launch  bigint,
           parallel_workers_launched   bigint,
           checksum_failures   bigint,
-          checksum_last_failure timestamp with time zone
+          checksum_last_failure timestamp with time zone,
+          dattablespace       oid,
+          datallowconn        boolean
           )
         JOIN
           samples s_ctl ON
@@ -2941,7 +3077,8 @@ BEGIN
         INSERT INTO last_stat_cluster (server_id,sample_id,checkpoints_timed,
           checkpoints_req,checkpoints_done,checkpoint_write_time,checkpoint_sync_time,
           buffers_checkpoint,slru_checkpoint,buffers_clean,maxwritten_clean,buffers_backend,
-          buffers_backend_fsync,buffers_alloc,stats_reset,wal_size)
+          buffers_backend_fsync,buffers_alloc,stats_reset,wal_size,wal_lsn,in_recovery,
+          restartpoints_timed,restartpoints_req,restartpoints_done,checkpoint_stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -2958,7 +3095,13 @@ BEGIN
           dr.buffers_backend_fsync,
           dr.buffers_alloc,
           dr.stats_reset,
-          dr.wal_size
+          dr.wal_size,
+          dr.wal_lsn,
+          dr.in_recovery,
+          dr.restartpoints_timed,
+          dr.restartpoints_req,
+          dr.restartpoints_done,
+          dr.checkpoint_stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
           server_id              integer,
           sample_id              integer,
@@ -2975,7 +3118,13 @@ BEGIN
           buffers_backend_fsync  bigint,
           buffers_alloc          bigint,
           stats_reset            timestamp with time zone,
-          wal_size               bigint
+          wal_size               bigint,
+          wal_lsn                pg_lsn,
+          in_recovery            boolean,
+          restartpoints_timed    bigint,
+          restartpoints_req      bigint,
+          restartpoints_done     bigint,
+          checkpoint_stats_reset timestamp with time zone
           )
         JOIN
           samples s_ctl ON
@@ -3039,7 +3188,7 @@ BEGIN
           idx_blks_read,idx_blks_hit,toast_blks_read,toast_blks_hit,tidx_blks_read,
           tidx_blks_hit,relsize,relsize_diff,tablespaceid,reltoastrelid,relkind,in_sample,
           relpages_bytes,relpages_bytes_diff,last_seq_scan,last_idx_scan,n_tup_newpage_upd,
-          reloptions)
+          reloptions,stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -3090,7 +3239,8 @@ BEGIN
           dr.last_seq_scan,
           dr.last_idx_scan,
           dr.n_tup_newpage_upd,
-          dr.reloptions
+          dr.reloptions,
+          dr.stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
           server_id            integer,
           sample_id            integer,
@@ -3141,7 +3291,8 @@ BEGIN
           last_seq_scan        timestamp with time zone,
           last_idx_scan        timestamp with time zone,
           n_tup_newpage_upd    bigint,
-          reloptions           jsonb
+          reloptions           jsonb,
+          stats_reset          timestamp with time zone
           )
         JOIN
           samples s_ctl ON
@@ -3161,7 +3312,7 @@ BEGIN
         INSERT INTO last_stat_indexes (server_id,sample_id,datid,relid,indexrelid,
           schemaname,relname,indexrelname,idx_scan,idx_tup_read,idx_tup_fetch,
           idx_blks_read,idx_blks_hit,relsize,relsize_diff,tablespaceid,indisunique,
-          in_sample,relpages_bytes,relpages_bytes_diff,last_idx_scan,reloptions)
+          in_sample,relpages_bytes,relpages_bytes_diff,last_idx_scan,reloptions,stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -3184,7 +3335,8 @@ BEGIN
           dr.relpages_bytes,
           dr.relpages_bytes_diff,
           dr.last_idx_scan,
-          dr.reloptions
+          dr.reloptions,
+          dr.stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
           server_id      integer,
           sample_id      integer,
@@ -3207,7 +3359,50 @@ BEGIN
           relpages_bytes bigint,
           relpages_bytes_diff bigint,
           last_idx_scan  timestamp with time zone,
-          reloptions     jsonb
+          reloptions     jsonb,
+          stats_reset    timestamp with time zone
+          )
+        JOIN
+          samples s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+            (s_ctl.server_id, s_ctl.sample_id)
+        ON CONFLICT DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
+    WHEN 'last_stat_sequences' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO last_stat_sequences (server_id,sample_id,datid,relid,tablespaceid,
+          schemaname,relname,blks_read,blks_hit,stats_reset,in_sample)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer,
+          dr.sample_id,
+          dr.datid,
+          dr.relid,
+          dr.tablespaceid,
+          dr.schemaname,
+          dr.relname,
+          dr.blks_read,
+          dr.blks_hit,
+          dr.stats_reset,
+          COALESCE(dr.in_sample, false)
+        FROM json_to_record(datarow.row_data) AS dr(
+          server_id      integer,
+          sample_id      integer,
+          datid          oid,
+          relid          oid,
+          tablespaceid   oid,
+          schemaname     name,
+          relname        name,
+          blks_read      bigint,
+          blks_hit       bigint,
+          stats_reset    timestamp with time zone,
+          in_sample      boolean
           )
         JOIN
           samples s_ctl ON
@@ -3225,7 +3420,7 @@ BEGIN
         FETCH data INTO datarow;
         EXIT WHEN NOT FOUND;
         INSERT INTO last_stat_user_functions (server_id,sample_id,datid,funcid,schemaname,
-          funcname,funcargs,calls,total_time,self_time,trg_fn,in_sample)
+          funcname,funcargs,calls,total_time,self_time,trg_fn,in_sample,stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
           dr.sample_id,
@@ -3238,7 +3433,8 @@ BEGIN
           dr.total_time,
           dr.self_time,
           dr.trg_fn,
-          COALESCE(dr.in_sample, false)
+          COALESCE(dr.in_sample, false),
+          dr.stats_reset
         FROM json_to_record(datarow.row_data) AS dr(
           server_id   integer,
           sample_id   integer,
@@ -3250,6 +3446,7 @@ BEGIN
           calls       bigint,
           total_time  double precision,
           self_time   double precision,
+          stats_reset timestamp with time zone,
           trg_fn      boolean,
           in_sample   boolean
           )
@@ -3269,7 +3466,7 @@ BEGIN
         FETCH data INTO datarow;
         EXIT WHEN NOT FOUND;
         INSERT INTO last_stat_wal (server_id,sample_id,wal_records,
-          wal_fpi,wal_bytes,wal_buffers_full,wal_write,wal_sync,
+          wal_fpi,wal_bytes,wal_fpi_bytes,wal_buffers_full,wal_write,wal_sync,
           wal_write_time,wal_sync_time,stats_reset)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
@@ -3277,6 +3474,7 @@ BEGIN
           dr.wal_records,
           dr.wal_fpi,
           dr.wal_bytes,
+          dr.wal_fpi_bytes,
           dr.wal_buffers_full,
           dr.wal_write,
           dr.wal_sync,
@@ -3289,6 +3487,7 @@ BEGIN
           wal_records         bigint,
           wal_fpi             bigint,
           wal_bytes           numeric,
+          wal_fpi_bytes       numeric,
           wal_buffers_full    bigint,
           wal_write           bigint,
           wal_sync            bigint,
@@ -3411,7 +3610,8 @@ BEGIN
               jit_inlining_time, jit_optimization_count, jit_optimization_time,
               jit_emission_count, jit_emission_time, temp_blk_read_time, temp_blk_write_time,
               local_blk_read_time, local_blk_write_time, jit_deform_count, jit_deform_time,
-              parallel_workers_to_launch, parallel_workers_launched, stats_since, minmax_stats_since
+              parallel_workers_to_launch, parallel_workers_launched, generic_plan_calls, custom_plan_calls,
+              stats_since, minmax_stats_since
               )
             SELECT
               (srv_map ->> dr.server_id::text)::integer,
@@ -3468,6 +3668,8 @@ BEGIN
               dr.jit_deform_time,
               dr.parallel_workers_to_launch,
               dr.parallel_workers_launched,
+              dr.generic_plan_calls,
+              dr.custom_plan_calls,
               dr.stats_since,
               dr.minmax_stats_since
             FROM json_to_record(datarow.row_data) AS dr(
@@ -3525,6 +3727,8 @@ BEGIN
               jit_deform_time      double precision,
               parallel_workers_to_launch  bigint,
               parallel_workers_launched   bigint,
+              generic_plan_calls   bigint,
+              custom_plan_calls    bigint,
               stats_since          timestamp with time zone,
               minmax_stats_since   timestamp with time zone
               )
@@ -3778,6 +3982,40 @@ BEGIN
           RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
         END IF;
       END LOOP; -- over data rows
+    WHEN 'last_stat_lock' THEN
+      LOOP
+        FETCH data INTO datarow;
+        EXIT WHEN NOT FOUND;
+        INSERT INTO last_stat_lock (server_id,sample_id,locktype,waits,
+          wait_time,fastpath_exceeded,stats_reset)
+        SELECT
+          (srv_map ->> dr.server_id::text)::integer,
+          dr.sample_id,
+          dr.locktype,
+          dr.waits,
+          dr.wait_time,
+          dr.fastpath_exceeded,
+          dr.stats_reset
+        FROM json_to_record(datarow.row_data) AS dr(
+          server_id           integer,
+          sample_id           integer,
+          locktype            text,
+          waits               bigint,
+          wait_time           bigint,
+          fastpath_exceeded   bigint,
+          stats_reset         timestamp with time zone
+          )
+        JOIN
+          samples s_ctl ON
+            ((srv_map ->> dr.server_id::text)::integer, dr.sample_id) =
+            (s_ctl.server_id, s_ctl.sample_id)
+        ON CONFLICT DO NOTHING;
+        GET DIAGNOSTICS row_proc = ROW_COUNT;
+        rowcnt := rowcnt + row_proc;
+        IF (rowcnt > 0 AND rowcnt % 1000 = 0) THEN
+          RAISE NOTICE '%', format('Table %s processed: %s rows', imp_table_name, rowcnt);
+        END IF;
+      END LOOP; -- over data rows
     WHEN 'extension_versions' THEN
       LOOP
         FETCH data INTO datarow;
@@ -3788,7 +4026,7 @@ BEGIN
           dr.datid,
           dr.extname,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.extversion
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -3798,10 +4036,8 @@ BEGIN
             last_sample_id   integer,
             extversion       text
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_extension_versions DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -3848,7 +4084,7 @@ BEGIN
           dr.datid,
           dr.relid,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -3858,10 +4094,8 @@ BEGIN
             last_sample_id   integer,
             reloptions       jsonb
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_table_storage_parameters DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -3880,7 +4114,7 @@ BEGIN
           dr.relid,
           dr.indexrelid,
           dr.first_seen,
-          dr.last_sample_id,
+          s.sample_id,
           dr.reloptions
         FROM json_to_record(datarow.row_data) AS dr(
             server_id        integer,
@@ -3891,10 +4125,8 @@ BEGIN
             last_sample_id   integer,
             reloptions       jsonb
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_index_storage_parameters DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -4301,7 +4533,7 @@ BEGIN
           dr.usename,
           dr.application_name,
           dr.client_addr,
-          dr.last_sample_id
+          s.sample_id
         FROM json_to_record(datarow.row_data) AS dr(
             server_id         integer,
             sess_attr_id      integer,
@@ -4314,10 +4546,8 @@ BEGIN
             client_addr       inet,
             last_sample_id    integer
           )
-        JOIN
-          servers s_ctl ON
-            ((srv_map ->> dr.server_id::text)::integer) =
-            (s_ctl.server_id)
+          LEFT JOIN samples s ON (s.server_id, s.sample_id) =
+            ((srv_map ->> dr.server_id::text)::integer, dr.last_sample_id)
         ON CONFLICT ON CONSTRAINT pk_subsample_sa DO NOTHING;
         GET DIAGNOSTICS row_proc = ROW_COUNT;
         rowcnt := rowcnt + row_proc;
@@ -4331,7 +4561,7 @@ BEGIN
         EXIT WHEN NOT FOUND;
         INSERT INTO sample_stat_activity_cnt(server_id, sample_id,
           subsample_ts, sess_attr_id, total, active, idle, idle_t,
-          idle_ta, state_null, lwlock, lock, bufferpin, activity,
+          idle_ta, state_null, lwlock, lock, buffer, activity,
           extension, client, ipc, timeout, io)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
@@ -4346,7 +4576,7 @@ BEGIN
           dr.state_null,
           dr.lwlock,
           dr.lock,
-          dr.bufferpin,
+          dr.buffer,
           dr.activity,
           dr.extension,
           dr.client,
@@ -4366,7 +4596,7 @@ BEGIN
             state_null        integer,
             lwlock            integer,
             lock              integer,
-            bufferpin         integer,
+            buffer            integer,
             activity          integer,
             extension         integer,
             client            integer,
@@ -4392,7 +4622,7 @@ BEGIN
         INSERT INTO last_stat_activity_count(server_id, sample_id,
           subsample_ts, backend_type, datid, datname, usesysid,
           usename, application_name, client_addr, total, active, idle,
-          idle_t, idle_ta, state_null, lwlock, lock, bufferpin,
+          idle_t, idle_ta, state_null, lwlock, lock, buffer,
           activity, extension, client, ipc, timeout, io)
         SELECT
           (srv_map ->> dr.server_id::text)::integer,
@@ -4413,7 +4643,7 @@ BEGIN
           dr.state_null,
           dr.lwlock,
           dr.lock,
-          dr.bufferpin,
+          dr.buffer,
           dr.activity,
           dr.extension,
           dr.client,
@@ -4439,7 +4669,7 @@ BEGIN
             state_null        integer,
             lwlock            integer,
             lock              integer,
-            bufferpin         integer,
+            buffer            integer,
             activity          integer,
             extension         integer,
             client            integer,

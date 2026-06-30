@@ -105,6 +105,10 @@ BEGIN
           'FOREIGN KEY (server_id, sample_id, datid) '
           'REFERENCES sample_stat_database(server_id, sample_id, datid) ON DELETE RESTRICT',
         sserver_id);
+    EXECUTE format(
+      'CREATE UNIQUE INDEX ix_last_stat_tables_srv%1$s_toast ON last_stat_tables_srv%1$s '
+      '(sample_id, datid, reltoastrelid) WHERE reltoastrelid IS NOT NULL',
+      sserver_id);
 
     -- Create last_stat_indexes table partition
     EXECUTE format(
@@ -116,6 +120,20 @@ BEGIN
         'ADD CONSTRAINT pk_last_stat_indexes_srv%1$s '
           'PRIMARY KEY (server_id, sample_id, datid, indexrelid), '
         'ADD CONSTRAINT fk_last_stat_indexes_dat_srv%1$s '
+        'FOREIGN KEY (server_id, sample_id, datid) '
+          'REFERENCES sample_stat_database(server_id, sample_id, datid) ON DELETE RESTRICT',
+        sserver_id);
+
+    -- Create last_stat_indexes table partition
+    EXECUTE format(
+      'CREATE TABLE last_stat_sequences_srv%1$s PARTITION OF last_stat_sequences '
+      'FOR VALUES IN (%1$s)',
+      sserver_id);
+    EXECUTE format(
+      'ALTER TABLE last_stat_sequences_srv%1$s '
+        'ADD CONSTRAINT pk_last_stat_sequences_srv%1$s '
+          'PRIMARY KEY (server_id, sample_id, datid, relid), '
+        'ADD CONSTRAINT fk_last_stat_sequences_dat_srv%1$s '
         'FOREIGN KEY (server_id, sample_id, datid) '
           'REFERENCES sample_stat_database(server_id, sample_id, datid) ON DELETE RESTRICT',
         sserver_id);
@@ -185,6 +203,8 @@ BEGIN
         sserver_id);
       EXECUTE format('ALTER EXTENSION {pg_profile} ADD TABLE last_stat_indexes_srv%1$s',
         sserver_id);
+      EXECUTE format('ALTER EXTENSION {pg_profile} ADD TABLE last_stat_sequences_srv%1$s',
+        sserver_id);
       EXECUTE format('ALTER EXTENSION {pg_profile} ADD TABLE last_stat_user_functions_srv%1$s',
         sserver_id);
       EXECUTE format('ALTER EXTENSION {pg_profile} ADD TABLE last_stat_activity_srv%1$s',
@@ -216,6 +236,8 @@ BEGIN
       dserver_id);
     EXECUTE format('ALTER EXTENSION {pg_profile} DROP TABLE last_stat_indexes_srv%1$s',
       dserver_id);
+    EXECUTE format('ALTER EXTENSION {pg_profile} DROP TABLE last_stat_sequences_srv%1$s',
+      dserver_id);
     EXECUTE format('ALTER EXTENSION {pg_profile} DROP TABLE last_stat_tablespaces_srv%1$s',
       dserver_id);
     EXECUTE format('ALTER EXTENSION {pg_profile} DROP TABLE last_stat_user_functions_srv%1$s',
@@ -241,6 +263,9 @@ BEGIN
       'DROP TABLE last_stat_indexes_srv%1$s',
       dserver_id);
     EXECUTE format(
+      'DROP TABLE last_stat_sequences_srv%1$s',
+      dserver_id);
+    EXECUTE format(
       'DROP TABLE last_stat_tablespaces_srv%1$s',
       dserver_id);
     EXECUTE format(
@@ -256,6 +281,7 @@ BEGIN
     DELETE FROM last_stat_io WHERE server_id = dserver_id;
     DELETE FROM last_stat_slru WHERE server_id = dserver_id;
     DELETE FROM last_stat_wal WHERE server_id = dserver_id;
+    DELETE FROM last_stat_lock WHERE server_id = dserver_id;
     DELETE FROM last_stat_archiver WHERE server_id = dserver_id;
     DELETE FROM sample_stat_tablespaces WHERE server_id = dserver_id;
     DELETE FROM tablespaces_list WHERE server_id = dserver_id;
@@ -269,6 +295,7 @@ BEGIN
         fk_st_tables_tables,
         fk_indexes_tables,
         fk_user_functions_functions,
+        fk_stat_sequences_sequences,
         fk_stmt_list,
         fk_kcache_stmt_list,
         fk_statements_roles,
@@ -281,12 +308,14 @@ BEGIN
     DELETE FROM samples WHERE server_id = dserver_id;
     DELETE FROM indexes_list WHERE server_id = dserver_id;
     DELETE FROM tables_list WHERE server_id = dserver_id;
+    DELETE FROM sequences_list WHERE server_id = dserver_id;
     SET CONSTRAINTS
         fk_stat_indexes_indexes,
         fk_st_tablespaces_tablespaces,
         fk_st_tables_tables,
         fk_indexes_tables,
         fk_user_functions_functions,
+        fk_stat_sequences_sequences,
         fk_stmt_list,
         fk_kcache_stmt_list,
         fk_statements_roles,
@@ -735,6 +764,27 @@ BEGIN
       (delete_samples.server_id, new_lastids.relid)
       AND uls.last_sample_id BETWEEN start_id AND end_id;
 
+    -- Sequences
+    UPDATE sequences_list uls
+    SET last_sample_id = new_lastids.last_sample_id
+    FROM (
+      SELECT relid, max(rf.sample_id) AS last_sample_id
+      FROM
+        sample_stat_sequences rf JOIN sequences_list lst
+          USING (server_id, relid)
+        LEFT JOIN bl_samples bl ON
+          (bl.server_id, bl.sample_id) = (rf.server_id, rf.sample_id) AND bl.sample_id BETWEEN start_id AND end_id
+      WHERE
+        rf.server_id = delete_samples.server_id
+        AND lst.last_sample_id BETWEEN start_id AND end_id
+        AND (rf.sample_id < start_id OR bl.sample_id IS NOT NULL)
+      GROUP BY relid
+      ) new_lastids
+    WHERE
+      (uls.server_id, uls.relid) =
+      (delete_samples.server_id, new_lastids.relid)
+      AND uls.last_sample_id BETWEEN start_id AND end_id;
+
     -- Functions
     UPDATE funcs_list uls
     SET last_sample_id = new_lastids.last_sample_id
@@ -841,6 +891,7 @@ BEGIN
       fk_st_tables_tables,
       fk_indexes_tables,
       fk_user_functions_functions,
+      fk_stat_sequences_sequences,
       fk_stmt_list,
       fk_kcache_stmt_list,
       fk_statements_roles,
@@ -872,6 +923,7 @@ BEGIN
       fk_st_tables_tables,
       fk_indexes_tables,
       fk_user_functions_functions,
+      fk_stat_sequences_sequences,
       fk_stmt_list,
       fk_kcache_stmt_list,
       fk_statements_roles,

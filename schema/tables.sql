@@ -188,7 +188,8 @@ CREATE TABLE last_stat_tables(
     total_vacuum_time       double precision,
     total_autovacuum_time   double precision,
     total_analyze_time      double precision,
-    total_autoanalyze_time  double precision
+    total_autoanalyze_time  double precision,
+    stats_reset         timestamp with time zone
 )
 PARTITION BY LIST (server_id);
 COMMENT ON TABLE last_stat_tables IS 'Last sample data for calculating diffs in next sample';

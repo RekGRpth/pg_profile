@@ -16,7 +16,7 @@ array_to_string(array
 )
 FROM generate_series(1,5);
 /* Enable scheduled relation sizes collection at server*/
-SELECT profile.set_server_size_sampling('local',current_time - interval '10 minute',interval '30 minute',interval '2 minute','schedule');
+SELECT profile.set_server_size_sampling('local',current_time - interval '10 minute',interval '30 minute',interval '20 minute','schedule');
 -- check show_servers_size_sampling()
 SELECT server_name,window_duration,sample_interval,collect_mode FROM profile.show_servers_size_sampling();
 -- (sample 4)

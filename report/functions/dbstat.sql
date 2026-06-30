@@ -1,33 +1,4 @@
 /* ========= Cluster databases report functions ========= */
-CREATE FUNCTION profile_checkavail_io_times(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS
-$$
--- Check if we have I/O times collected for report interval
-  SELECT COALESCE(sum(blk_read_time), 0) + COALESCE(sum(blk_write_time), 0) > 0
-  FROM sample_stat_database sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_sessionstats(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS
-$$
--- Check if there is table sizes collected in both bounds
-  SELECT
-    count(session_time) +
-    count(active_time) +
-    count(idle_in_transaction_time) +
-    count(sessions) +
-    count(sessions_abandoned) +
-    count(sessions_fatal) +
-    count(sessions_killed) > 0
-  FROM sample_stat_database
-  WHERE
-    server_id = sserver_id
-    AND sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
 CREATE FUNCTION dbstats(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     server_id             integer,
@@ -339,7 +310,8 @@ CREATE FUNCTION dbstats_reset_format(IN sserver_id integer, IN start_id integer,
 RETURNS TABLE(
     dbname      name,
     stats_reset text,
-    sample_id   integer
+    sample_id   integer,
+    ord_sample  integer
   )
     SET search_path=@extschema@
 AS
@@ -347,9 +319,9 @@ $$
   SELECT
     dbname,
     stats_reset::text as stats_reset,
-    sample_id
-  FROM dbstats_reset(sserver_id, start_id, end_id)
-  ORDER BY sample_id ASC
+    sample_id,
+    row_number() OVER (ORDER BY sample_id, dbname)::integer AS ord_sample
+  FROM dbstats_reset(sserver_id, start_id, end_id);
 $$ LANGUAGE sql;
 
 CREATE FUNCTION dbstats_reset_format_diff(IN sserver_id integer,
@@ -359,7 +331,8 @@ RETURNS TABLE(
   interval_num integer,
   dbname       name,
   stats_reset  text,
-  sample_id    integer
+  sample_id    integer,
+  ord_sample   integer
 )
 SET search_path=@extschema@
 AS
@@ -368,12 +341,12 @@ $$
     interval_num,
     dbname,
     stats_reset::text as stats_reset,
-    sample_id
+    sample_id,
+    row_number() OVER (ORDER BY interval_num, sample_id, dbname)::integer AS ord_sample
   FROM
     (SELECT 1 AS interval_num, dbname, stats_reset, sample_id
       FROM dbstats_reset(sserver_id, start1_id, end1_id)
     UNION
     SELECT 2 AS interval_num, dbname, stats_reset, sample_id
-      FROM dbstats_reset(sserver_id, start2_id, end2_id)) AS samples
-  ORDER BY interval_num, sample_id ASC;
+      FROM dbstats_reset(sserver_id, start2_id, end2_id)) AS samples;
 $$ LANGUAGE sql;

@@ -1,5 +1,21 @@
 # pg_profile changelog
 
+## 4.14
+- Support of PostgreSQL 19 statistics
+- Support of *pg_stat_statements* 1.13
+- Support of *pg_stat_kcache* 2.3.2
+- Added sorting in some dataset functions and report_struct
+- Added tests for comparing datasets during export-import regression test
+- get_report_context perfomance improved
+- Added rows "WAL FPI generated" and "WAL FPI per second" to "WAL statistics" section (from pg_stat_wal.wal_fpi_bytes)
+- Added "Plan types" columns "Generic" and "Custom" to "Top SQL by planning time" section (from pg_stat_statements.generic_plan_calls and custom_plan_calls)
+- Added "Lock statistics" section (from pg_stat_lock)
+- Added "Top sequences by blocks fetched" and "Top sequences by blocks read" sections (from pg_statio_all_sequences)
+- Renamed "BufferPin" wait event type to "Buffer" in grafana
+- Fixed flaky regression test for storage parameters
+- Fixed flaky regression tests on slow execution environments
+- Fixed import errors and FK violations for missing samples
+
 ## 4.11
 - pg_profile dump import optimization
 - Fixed #133, #142, #145, #138

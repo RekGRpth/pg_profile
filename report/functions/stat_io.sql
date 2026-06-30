@@ -80,7 +80,8 @@ RETURNS TABLE(
     evictions             bigint,
     reuses                bigint,
     fsyncs                bigint,
-    fsync_time            numeric
+    fsync_time            numeric,
+    ord_obj               integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     COALESCE(backend_type, 'Total'),
@@ -103,7 +104,8 @@ RETURNS TABLE(
     NULLIF(SUM(evictions), 0)::bigint AS evictions,
     NULLIF(SUM(reuses), 0)::bigint AS reuses,
     NULLIF(SUM(fsyncs), 0)::bigint AS fsyncs,
-    ROUND(CAST(NULLIF(SUM(fsync_time), 0.0) / 1000 AS numeric),2) AS fsync_time
+    ROUND(CAST(NULLIF(SUM(fsync_time), 0.0) / 1000 AS numeric),2) AS fsync_time,
+    row_number() OVER (ORDER BY object, backend_type, context)::integer AS ord_obj
 
   FROM cluster_stat_io(sserver_id, start_id, end_id)
   GROUP BY ROLLUP(object, backend_type, context)
@@ -151,7 +153,8 @@ RETURNS TABLE(
     evictions2            bigint,
     reuses2               bigint,
     fsyncs2               bigint,
-    fsync_time2           numeric
+    fsync_time2           numeric,
+    ord_obj               integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     COALESCE(backend_type, 'Total'),
@@ -192,7 +195,8 @@ RETURNS TABLE(
     NULLIF(SUM(st2.evictions), 0)::bigint AS evictions2,
     NULLIF(SUM(st2.reuses), 0)::bigint AS reuses2,
     NULLIF(SUM(st2.fsyncs), 0)::bigint AS fsyncs2,
-    ROUND(CAST(NULLIF(SUM(st2.fsync_time), 0.0) / 1000 AS numeric),2) AS fsync_time2
+    ROUND(CAST(NULLIF(SUM(st2.fsync_time), 0.0) / 1000 AS numeric),2) AS fsync_time2,
+    row_number() OVER (ORDER BY object, backend_type, context)::integer AS ord_obj
     
   FROM cluster_stat_io(sserver_id, start1_id, end1_id) st1
     FULL OUTER JOIN cluster_stat_io(sserver_id, start2_id, end2_id) st2
@@ -240,16 +244,17 @@ RETURNS TABLE(
     backend_type  text,
     object        text,
     context       text,
-    stats_reset   timestamp with time zone
+    stats_reset   timestamp with time zone,
+    ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
     backend_type,
     object,
     context,
-    stats_reset
-  FROM cluster_stat_io_resets(sserver_id, start_id, end_id)
-  ORDER BY sample_id ASC, object ASC, backend_type ASC
+    stats_reset,
+    row_number() OVER (ORDER BY sample_id ASC, object ASC, backend_type ASC, context ASC) as ord_sample
+  FROM cluster_stat_io_resets(sserver_id, start_id, end_id);
 $$ LANGUAGE sql;
 
 CREATE FUNCTION cluster_stat_io_reset_format(IN sserver_id integer,
@@ -259,14 +264,16 @@ RETURNS TABLE(
     backend_type  text,
     object        text,
     context       text,
-    stats_reset   timestamp with time zone
+    stats_reset   timestamp with time zone,
+    ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
     sample_id,
     backend_type,
     object,
     context,
-    stats_reset
+    stats_reset,
+    row_number() OVER (ORDER BY sample_id ASC, object ASC, backend_type ASC, context ASC) as ord_sample
   FROM (
     SELECT
       sample_id,

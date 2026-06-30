@@ -412,7 +412,7 @@ BEGIN
       'count(*) FILTER (WHERE state IS NULL) as state_null,'
       'count(*) FILTER (WHERE wait_event_type = ''LWLock'') as lwlock,'
       'count(*) FILTER (WHERE wait_event_type = ''Lock'') as lock,'
-      'count(*) FILTER (WHERE wait_event_type = ''BufferPin'') as bufferpin,'
+      'count(*) FILTER (WHERE wait_event_type = ''Buffer'') as buffer,'
       'count(*) FILTER (WHERE wait_event_type = ''Activity'') as activity,'
       'count(*) FILTER (WHERE wait_event_type = ''Extension'') as extension,'
       'count(*) FILTER (WHERE wait_event_type = ''Client'') as client,'
@@ -444,7 +444,7 @@ BEGIN
       dbl.state_null,
       dbl.lwlock,
       dbl.lock,
-      dbl.bufferpin,
+      dbl.buffer,
       dbl.activity,
       dbl.extension,
       dbl.client,
@@ -470,7 +470,7 @@ BEGIN
           state_null        integer,
           lwlock            integer,
           lock              integer,
-          bufferpin         integer,
+          buffer            integer,
           activity          integer,
           extension         integer,
           client            integer,

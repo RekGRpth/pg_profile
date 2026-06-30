@@ -270,6 +270,7 @@ BEGIN
     server_properties := query_pg_stat_io(server_properties, sserver_id, s_id);
     server_properties := query_pg_stat_slru(server_properties, sserver_id, s_id);
     server_properties := query_pg_stat_archiver(server_properties, sserver_id, s_id);
+    server_properties := query_pg_stat_lock(server_properties, sserver_id, s_id);
 
     server_properties := log_sample_timings(server_properties, 'collect object stats', 'start');
     -- Collecting stat info for objects of all databases
@@ -380,6 +381,10 @@ BEGIN
     server_properties := log_sample_timings(server_properties, 'calculate archiver stats', 'start');
     perform calculate_archiver_stats(sserver_id, s_id);
     server_properties := log_sample_timings(server_properties, 'calculate archiver stats', 'end');
+
+    server_properties := log_sample_timings(server_properties, 'calculate lock stats', 'start');
+    perform calculate_lock_stats(sserver_id, s_id);
+    server_properties := log_sample_timings(server_properties, 'calculate lock stats', 'end');
 
     server_properties := log_sample_timings(server_properties, 'delete obsolete samples', 'start');
     perform delete_obsolete_samples(sserver_id, s_id);

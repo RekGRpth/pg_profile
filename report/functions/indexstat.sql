@@ -223,7 +223,7 @@ SET search_path=@extschema@ AS $$
         ((rsa.growth_avail AND ix.growth > 0) OR ix.relpagegrowth_bytes > 0)
       THEN
         row_number() OVER (ORDER BY
-          CASE WHEN rsa.growth_avail THEN ix.growth ELSE ix.relpagegrowth_bytes END 
+          CASE WHEN rsa.growth_avail THEN ix.growth ELSE ix.relpagegrowth_bytes END
           DESC NULLS LAST,
           datid, indexrelid)::integer
       ELSE NULL END AS ord_growth,

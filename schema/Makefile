@@ -16,7 +16,8 @@ schema_files = \
 	smpl_timing.sql \
 	reports.sql \
 	extension_versions.sql \
-	relation_storage_parameters.sql
+	relation_storage_parameters.sql \
+	sequences.sql
 
 schema.sql: $(schema_files)
 	cat $(schema_files) \

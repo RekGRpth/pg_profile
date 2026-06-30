@@ -18,6 +18,50 @@ SET
 WHERE server_name = 'src_local';
 /* === perform load === */
 SELECT profile.import_data('profile.export') > 0;
+/* === Compare datasets  === */
+DO $$
+DECLARE
+  start_id integer := 1;
+  end_id integer := 4;
+  local_server_id integer := (SELECT server_id AS src_local_server FROM profile.servers WHERE server_name = 'local');
+  src_local_server_id integer := (SELECT server_id AS src_local_server FROM profile.servers WHERE server_name = 'src_local');
+  local_context jsonb := profile.get_report_context(local_server_id, start_id, end_id);
+  src_local_context jsonb := profile.get_report_context(src_local_server_id, start_id, end_id);
+  local_datasets jsonb := profile.get_report_datasets(local_context, local_server_id, NULL);
+  src_local_datasets jsonb := profile.get_report_datasets(src_local_context, src_local_server_id, NULL);
+  list_str text;
+BEGIN
+  SELECT string_agg(coalesce(d1.key, d2.key),',')
+  INTO list_str
+  FROM jsonb_each(src_local_datasets) d1
+    FULL JOIN jsonb_each(local_datasets) d2 ON d1.key = d2.key
+  WHERE d1.value <> d2.value AND coalesce(d1.key, d2.key) <> 'properties';
+
+  IF list_str IS NOT NULL THEN
+    RAISE 'The following datasets do not match %', list_str;
+  END IF;
+
+  SELECT string_agg(coalesce(d1.key, d2.key),',')
+  INTO list_str
+  FROM jsonb_each(src_local_context->'report_features') d1
+    FULL JOIN jsonb_each(local_context->'report_features') d2 ON d1.key = d2.key
+  WHERE d1.value <> d2.value;
+
+  IF list_str IS NOT NULL THEN
+    RAISE 'The following features do not match %', list_str;
+  END IF;
+
+  SELECT string_agg(coalesce(d1.key, d2.key),',')
+  INTO list_str
+  FROM jsonb_each(src_local_context->'report_properties') d1
+    FULL JOIN jsonb_each(local_context->'report_properties') d2 ON d1.key = d2.key
+  WHERE d1.value <> d2.value AND coalesce(d1.key, d2.key) <> 'server_name';
+
+  IF list_str IS NOT NULL THEN
+    RAISE 'The following properties do not match %', list_str;
+  END IF;
+END;
+$$;
 /* === Integral check - reports must match === */
 \a
 \t on

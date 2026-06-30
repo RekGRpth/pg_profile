@@ -1,23 +1,4 @@
 /* ===== Function stats functions ===== */
-CREATE FUNCTION profile_checkavail_functions(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if we have function calls collected for report interval
-  SELECT COALESCE(sum(calls), 0) > 0
-  FROM sample_stat_user_func_total sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_trg_functions(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS $$
--- Check if we have trigger function calls collected for report interval
-  SELECT COALESCE(sum(calls), 0) > 0
-  FROM sample_stat_user_func_total sn
-  WHERE sn.server_id = sserver_id AND sn.sample_id BETWEEN start_id + 1 AND end_id
-    AND sn.trg_fn
-$$ LANGUAGE sql;
-/* ===== Function stats functions ===== */
 
 CREATE FUNCTION top_functions(IN sserver_id integer, IN start_id integer, IN end_id integer)
 RETURNS TABLE(

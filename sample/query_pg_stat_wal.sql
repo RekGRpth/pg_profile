@@ -7,11 +7,25 @@ begin
     server_properties := log_sample_timings(server_properties, 'query pg_stat_wal', 'start');
     -- pg_stat_wal data
     CASE
+      WHEN pg_version >= 190000 THEN
+        server_query := 'SELECT '
+          'wal.wal_records,'
+          'wal.wal_fpi,'
+          'wal.wal_bytes,'
+          'wal.wal_fpi_bytes,'
+          'wal.wal_buffers_full,'
+          'NULL as wal_write,'
+          'NULL as wal_sync,'
+          'NULL as wal_write_time,'
+          'NULL as wal_sync_time,'
+          'wal.stats_reset '
+          'FROM pg_catalog.pg_stat_wal wal';
       WHEN pg_version >= 180000 THEN
         server_query := 'SELECT '
           'wal.wal_records,'
           'wal.wal_fpi,'
           'wal.wal_bytes,'
+          'NULL as wal_fpi_bytes,'
           'wal.wal_buffers_full,'
           'NULL as wal_write,'
           'NULL as wal_sync,'
@@ -24,6 +38,7 @@ begin
           'wal_records,'
           'wal_fpi,'
           'wal_bytes,'
+          'NULL as wal_fpi_bytes,'
           'wal_buffers_full,'
           'wal_write,'
           'wal_sync,'
@@ -42,6 +57,7 @@ begin
         wal_records,
         wal_fpi,
         wal_bytes,
+        wal_fpi_bytes,
         wal_buffers_full,
         wal_write,
         wal_sync,
@@ -55,6 +71,7 @@ begin
         wal_records,
         wal_fpi,
         wal_bytes,
+        wal_fpi_bytes,
         wal_buffers_full,
         wal_write,
         wal_sync,
@@ -65,6 +82,7 @@ begin
         wal_records         bigint,
         wal_fpi             bigint,
         wal_bytes           numeric,
+        wal_fpi_bytes       numeric,
         wal_buffers_full    bigint,
         wal_write           bigint,
         wal_sync            bigint,

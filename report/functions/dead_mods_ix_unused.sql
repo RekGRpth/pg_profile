@@ -1,34 +1,3 @@
-CREATE FUNCTION profile_checkavail_tbl_top_dead(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS
-$$
-    SELECT
-        COUNT(*) > 0
-    FROM v_sample_stat_tables st
-        JOIN sample_stat_database sample_db USING (server_id, sample_id, datid)
-    WHERE st.server_id=sserver_id AND NOT sample_db.datistemplate AND sample_id = end_id
-        -- Min 5 MB in size
-        AND COALESCE(st.relsize,st.relpages_bytes) > 5 * 1024^2
-        AND st.n_dead_tup > 0;
-$$ LANGUAGE sql;
-
-CREATE FUNCTION profile_checkavail_tbl_top_mods(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS BOOLEAN
-SET search_path=@extschema@ AS
-$$
-    SELECT
-        COUNT(*) > 0
-    FROM v_sample_stat_tables st
-        -- Database name and existance condition
-        JOIN sample_stat_database sample_db USING (server_id, sample_id, datid)
-    WHERE st.server_id = sserver_id AND NOT sample_db.datistemplate AND sample_id = end_id
-        AND st.relkind IN ('r','m')
-        -- Min 5 MB in size
-        AND COALESCE(st.relsize,st.relpages_bytes) > 5 * 1024^2
-        AND n_mod_since_analyze > 0
-        AND n_live_tup + n_dead_tup > 0;
-$$ LANGUAGE sql;
-
 CREATE FUNCTION top_tbl_last_sample_format(IN sserver_id integer, IN start_id integer, end_id integer)
 RETURNS TABLE(
     datid               oid,

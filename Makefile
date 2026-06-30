@@ -1,4 +1,4 @@
-PGPROFILE_VERSION = 4.11
+PGPROFILE_VERSION = 4.14
 EXTENSION = pg_profile
 
 TAR_pkg = $(EXTENSION)--$(PGPROFILE_VERSION).tar.gz $(EXTENSION)--$(PGPROFILE_VERSION)_manual.tar.gz
@@ -67,6 +67,7 @@ sample = \
 	sample/calculate_slru_stats.sql \
 	sample/calculate_tablespace_stats.sql \
 	sample/calculate_wal_stats.sql \
+	sample/calculate_lock_stats.sql \
 	sample/collect_database_stats.sql \
 	sample/collect_obj_stats.sql \
 	sample/collect_subsamples.sql \
@@ -80,6 +81,7 @@ sample = \
 	sample/query_pg_stat_io.sql \
 	sample/query_pg_stat_slru.sql \
 	sample/query_pg_stat_wal.sql \
+	sample/query_pg_stat_lock.sql \
 	sample/sample_dbobj_delta.sql \
 	sample/show_samples.0.sql \
 	sample/show_samples.1.sql \

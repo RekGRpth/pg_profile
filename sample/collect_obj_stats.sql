@@ -161,7 +161,8 @@ BEGIN
             'NULL AS last_seq_scan,'
             'NULL AS last_idx_scan,'
             'NULL AS n_tup_newpage_upd,'
-            'to_jsonb(class.reloptions) '
+            'to_jsonb(class.reloptions),'
+            'NULL AS stats_reset '
           'FROM pg_catalog.pg_stat_all_tables st '
           'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
           'LEFT JOIN ixstat I ON I.indrelid = class.oid '
@@ -235,7 +236,8 @@ BEGIN
             'NULL AS last_seq_scan,'
             'NULL AS last_idx_scan,'
             'NULL AS n_tup_newpage_upd,'
-            'to_jsonb(class.reloptions) '
+            'to_jsonb(class.reloptions),'
+            'NULL AS stats_reset '
           'FROM pg_catalog.pg_stat_all_tables st '
           'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
           'LEFT JOIN ixstat I ON I.indrelid = class.oid '
@@ -292,7 +294,8 @@ BEGIN
             'NULL AS last_seq_scan,'
             'NULL AS last_idx_scan,'
             'NULL AS n_tup_newpage_upd,'
-            'to_jsonb(class.reloptions) '
+            'to_jsonb(class.reloptions),'
+            'NULL AS stats_reset '
           'FROM pg_catalog.pg_stat_all_tables st '
           'JOIN pg_catalog.pg_statio_all_tables stio USING (relid, schemaname, relname) '
           'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
@@ -348,7 +351,8 @@ BEGIN
             'st.last_seq_scan,'
             'st.last_idx_scan,'
             'st.n_tup_newpage_upd,'
-            'to_jsonb(class.reloptions) '
+            'to_jsonb(class.reloptions),'
+            'NULL AS stats_reset '
           'FROM pg_catalog.pg_stat_all_tables st '
           'JOIN pg_catalog.pg_statio_all_tables stio USING (relid, schemaname, relname) '
           'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
@@ -356,7 +360,7 @@ BEGIN
           '{lock_join}'
           ;
 
-        WHEN pg_version >= 180000 THEN
+        WHEN pg_version < 190000 THEN
           t_query := 'SELECT '
             'st.relid,'
             'st.schemaname,'
@@ -404,7 +408,65 @@ BEGIN
             'st.last_seq_scan,'
             'st.last_idx_scan,'
             'st.n_tup_newpage_upd,'
-            'to_jsonb(class.reloptions) '
+            'to_jsonb(class.reloptions),'
+            'NULL AS stats_reset '
+          'FROM pg_catalog.pg_stat_all_tables st '
+          'JOIN pg_catalog.pg_statio_all_tables stio USING (relid, schemaname, relname) '
+          'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
+          -- is relation or its dependant is locked
+          '{lock_join}'
+          ;
+
+        WHEN pg_version >= 190000 THEN
+          t_query := 'SELECT '
+            'st.relid,'
+            'st.schemaname,'
+            'st.relname,'
+            'st.seq_scan,'
+            'st.seq_tup_read,'
+            'st.idx_scan,'
+            'st.idx_tup_fetch,'
+            'st.n_tup_ins,'
+            'st.n_tup_upd,'
+            'st.n_tup_del,'
+            'st.n_tup_hot_upd,'
+            'st.n_live_tup,'
+            'st.n_dead_tup,'
+            'st.n_mod_since_analyze,'
+            'st.n_ins_since_vacuum,'
+            'st.last_vacuum,'
+            'st.last_autovacuum,'
+            'st.last_analyze,'
+            'st.last_autoanalyze,'
+            'st.vacuum_count,'
+            'st.autovacuum_count,'
+            'st.analyze_count,'
+            'st.autoanalyze_count,'
+            'st.total_vacuum_time,'
+            'st.total_autovacuum_time,'
+            'st.total_analyze_time,'
+            'st.total_autoanalyze_time,'
+            'stio.heap_blks_read,'
+            'stio.heap_blks_hit,'
+            'stio.idx_blks_read,'
+            'stio.idx_blks_hit,'
+            'stio.toast_blks_read,'
+            'stio.toast_blks_hit,'
+            'stio.tidx_blks_read,'
+            'stio.tidx_blks_hit,'
+            -- Size of all forks without TOAST
+            '{relation_size} relsize,'
+            '0 relsize_diff,'
+            'class.reltablespace AS tablespaceid,'
+            'class.reltoastrelid,'
+            'class.relkind,'
+            'class.relpages::bigint * current_setting(''block_size'')::bigint AS relpages_bytes,'
+            '0 AS relpages_bytes_diff,'
+            'st.last_seq_scan,'
+            'st.last_idx_scan,'
+            'st.n_tup_newpage_upd,'
+            'to_jsonb(class.reloptions),'
+            'st.stats_reset '
           'FROM pg_catalog.pg_stat_all_tables st '
           'JOIN pg_catalog.pg_statio_all_tables stio USING (relid, schemaname, relname) '
           'JOIN pg_catalog.pg_class class ON (st.relid = class.oid) '
@@ -484,7 +546,8 @@ BEGIN
           last_seq_scan,
           last_idx_scan,
           n_tup_newpage_upd,
-          reloptions
+          reloptions,
+          stats_reset
         )
         SELECT
           sserver_id,
@@ -536,7 +599,8 @@ BEGIN
           dbl.last_seq_scan,
           dbl.last_idx_scan,
           dbl.n_tup_newpage_upd,
-          dbl.reloptions
+          dbl.reloptions,
+          dbl.stats_reset AS stats_reset
         FROM dblink('server_db_connection', t_query)
         AS dbl (
             relid                 oid,
@@ -584,7 +648,8 @@ BEGIN
             last_seq_scan         timestamp with time zone,
             last_idx_scan         timestamp with time zone,
             n_tup_newpage_upd     bigint,
-            reloptions            jsonb
+            reloptions            jsonb,
+            stats_reset           timestamp with time zone
         );
 
         IF NOT analyze_list @> ARRAY[format('last_stat_tables_srv%1$s', sserver_id)] THEN
@@ -598,13 +663,7 @@ BEGIN
 
       -- Generate index stats query
       CASE
-        WHEN (
-          SELECT count(*) = 1 FROM jsonb_to_recordset(properties #> '{settings}')
-            AS x(name text, reset_val text)
-          WHERE name = 'server_version_num'
-            AND reset_val::integer < 160000
-        )
-        THEN
+        WHEN pg_version < 160000 THEN
           t_query := 'SELECT '
             'st.relid,'
             'st.indexrelid,'
@@ -623,7 +682,8 @@ BEGIN
             '(ix.indisunique OR con.conindid IS NOT NULL) AS indisunique,'
             'pg_class.relpages::bigint * current_setting(''block_size'')::bigint AS relpages_bytes,'
             '0 AS relpages_bytes_diff,'
-            'to_jsonb(pg_class.reloptions) '
+            'to_jsonb(pg_class.reloptions),'
+            'NULL AS stats_reset '
           'FROM pg_catalog.pg_stat_all_indexes st '
             'JOIN pg_catalog.pg_statio_all_indexes stio USING (relid, indexrelid, schemaname, relname, indexrelname) '
             'JOIN pg_catalog.pg_index ix ON (ix.indexrelid = st.indexrelid) '
@@ -632,13 +692,8 @@ BEGIN
               '(con.conrelid, con.conindid) = (ix.indrelid, ix.indexrelid) AND con.contype in (''p'',''u'') '
             '{lock_join}'
             ;
-        WHEN (
-          SELECT count(*) = 1 FROM jsonb_to_recordset(properties #> '{settings}')
-            AS x(name text, reset_val text)
-          WHERE name = 'server_version_num'
-            AND reset_val::integer >= 160000
-        )
-        THEN
+
+        WHEN pg_version < 190000 THEN
           t_query := 'SELECT '
             'st.relid,'
             'st.indexrelid,'
@@ -657,7 +712,38 @@ BEGIN
             '(ix.indisunique OR con.conindid IS NOT NULL) AS indisunique,'
             'pg_class.relpages::bigint * current_setting(''block_size'')::bigint AS relpages_bytes,'
             '0 AS relpages_bytes_diff,'
-            'to_jsonb(pg_class.reloptions) '
+            'to_jsonb(pg_class.reloptions),'
+            'NULL AS stats_reset '
+          'FROM pg_catalog.pg_stat_all_indexes st '
+            'JOIN pg_catalog.pg_statio_all_indexes stio USING (relid, indexrelid, schemaname, relname, indexrelname) '
+            'JOIN pg_catalog.pg_index ix ON (ix.indexrelid = st.indexrelid) '
+            'JOIN pg_catalog.pg_class ON (pg_class.oid = st.indexrelid) '
+            'LEFT OUTER JOIN pg_catalog.pg_constraint con ON '
+              '(con.conrelid, con.conindid) = (ix.indrelid, ix.indexrelid) AND con.contype in (''p'',''u'') '
+            '{lock_join}'
+            ;
+
+        WHEN pg_version >= 190000 THEN
+          t_query := 'SELECT '
+            'st.relid,'
+            'st.indexrelid,'
+            'st.schemaname,'
+            'st.relname,'
+            'st.indexrelname,'
+            'st.idx_scan,'
+            'st.last_idx_scan,'
+            'st.idx_tup_read,'
+            'st.idx_tup_fetch,'
+            'stio.idx_blks_read,'
+            'stio.idx_blks_hit,'
+            '{relation_size} relsize,'
+            '0,'
+            'pg_class.reltablespace as tablespaceid,'
+            '(ix.indisunique OR con.conindid IS NOT NULL) AS indisunique,'
+            'pg_class.relpages::bigint * current_setting(''block_size'')::bigint AS relpages_bytes,'
+            '0 AS relpages_bytes_diff,'
+            'to_jsonb(pg_class.reloptions),'
+            'st.stats_reset '
           'FROM pg_catalog.pg_stat_all_indexes st '
             'JOIN pg_catalog.pg_statio_all_indexes stio USING (relid, indexrelid, schemaname, relname, indexrelname) '
             'JOIN pg_catalog.pg_index ix ON (ix.indexrelid = st.indexrelid) '
@@ -708,7 +794,8 @@ BEGIN
           in_sample,
           relpages_bytes,
           relpages_bytes_diff,
-          reloptions
+          reloptions,
+          stats_reset
         )
         SELECT
           sserver_id,
@@ -732,7 +819,8 @@ BEGIN
           false,
           dbl.relpages_bytes,
           dbl.relpages_bytes_diff,
-          dbl.reloptions
+          dbl.reloptions,
+          dbl.stats_reset AS stats_reset
         FROM dblink('server_db_connection', t_query)
         AS dbl (
            relid          oid,
@@ -752,7 +840,8 @@ BEGIN
            indisunique    bool,
            relpages_bytes bigint,
            relpages_bytes_diff  bigint,
-           reloptions jsonb
+           reloptions jsonb,
+           stats_reset    timestamp with time zone
         );
 
         IF NOT analyze_list @> ARRAY[format('last_stat_indexes_srv%1$s', sserver_id)] THEN
@@ -762,20 +851,116 @@ BEGIN
       END IF; -- relation collection condition
 
       result := log_sample_timings(result, format('db:%s collect indexes stats',qres.datname), 'end');
+      result := log_sample_timings(result, format('db:%s collect sequences stats',qres.datname), 'start');
+
+      -- Generate sequences stats query
+      CASE
+        WHEN pg_version < 190000 THEN
+          t_query := 'SELECT '
+            'sis.relid,'
+            'c.reltablespace as tablespaceid,'
+            'sis.schemaname,'
+            'sis.relname,'
+            'sis.blks_read,'
+            'sis.blks_hit,'
+            'NULL AS stats_reset '
+          'FROM pg_catalog.pg_statio_all_sequences sis '
+            'JOIN pg_catalog.pg_class c ON (c.oid = sis.relid)'
+            ;
+        WHEN pg_version >= 190000 THEN
+          t_query := 'SELECT '
+            'sis.relid,'
+            'c.reltablespace as tablespaceid,'
+            'sis.schemaname,'
+            'sis.relname,'
+            'sis.blks_read,'
+            'sis.blks_hit,'
+            'sis.stats_reset '
+          'FROM pg_catalog.pg_statio_all_sequences sis '
+            'JOIN pg_catalog.pg_class c ON (c.oid = sis.relid)'
+            ;
+        ELSE
+          RAISE 'Unsupported server version.';
+      END CASE;
+
+      IF COALESCE((properties #> '{collect,relations}')::boolean, true) THEN
+        INSERT INTO last_stat_sequences(
+          server_id,
+          sample_id,
+          datid,
+          relid,
+          tablespaceid,
+          schemaname,
+          relname,
+          blks_read,
+          blks_hit,
+          stats_reset
+        )
+        SELECT
+          sserver_id,
+          s_id,
+          qres.datid,
+          dbl.relid,
+          CASE WHEN tablespaceid = 0 THEN qres.tablespaceid ELSE dbl.tablespaceid END AS tablespaceid,
+          dbl.schemaname,
+          dbl.relname,
+          dbl.blks_read,
+          dbl.blks_hit,
+          dbl.stats_reset
+        FROM dblink('server_db_connection', t_query)
+        AS dbl (
+           relid          oid,
+           tablespaceid   oid,
+           schemaname     name,
+           relname        name,
+           blks_read      bigint,
+           blks_hit       bigint,
+           stats_reset    timestamp with time zone
+        );
+
+        IF NOT analyze_list @> ARRAY[format('last_stat_sequences_srv%1$s', sserver_id)] THEN
+          analyze_list := analyze_list ||
+            format('last_stat_sequences_srv%1$s', sserver_id);
+        END IF;
+      END IF;
+
+      result := log_sample_timings(result, format('db:%s collect sequences stats',qres.datname), 'end');
       result := log_sample_timings(result, format('db:%s collect functions stats',qres.datname), 'start');
 
       -- Generate Function stats query
-      t_query := 'SELECT f.funcid,'
-        'f.schemaname,'
-        'f.funcname,'
-        'pg_get_function_arguments(f.funcid) AS funcargs,'
-        'f.calls,'
-        'f.total_time,'
-        'f.self_time,'
-        'p.prorettype::regtype::text =''trigger'' AS trg_fn '
-      'FROM pg_catalog.pg_stat_user_functions f '
-        'JOIN pg_catalog.pg_proc p ON (f.funcid = p.oid) '
-      'WHERE pg_get_function_arguments(f.funcid) IS NOT NULL';
+      CASE
+        WHEN pg_version < 190000 THEN
+          t_query := 'SELECT '
+            'f.funcid,'
+            'f.schemaname,'
+            'f.funcname,'
+            'pg_get_function_arguments(f.funcid) AS funcargs,'
+            'f.calls,'
+            'f.total_time,'
+            'f.self_time,'
+            'p.prorettype::regtype::text =''trigger'' AS trg_fn,'
+            'NULL AS stats_reset '
+          'FROM pg_catalog.pg_stat_user_functions f '
+            'JOIN pg_catalog.pg_proc p ON (f.funcid = p.oid) '
+          'WHERE pg_get_function_arguments(f.funcid) IS NOT NULL';
+
+        WHEN pg_version >= 190000 THEN
+          t_query := 'SELECT '
+            'f.funcid,'
+            'f.schemaname,'
+            'f.funcname,'
+            'pg_get_function_arguments(f.funcid) AS funcargs,'
+            'f.calls,'
+            'f.total_time,'
+            'f.self_time,'
+            'p.prorettype::regtype::text =''trigger'' AS trg_fn,'
+            'f.stats_reset '
+          'FROM pg_catalog.pg_stat_user_functions f '
+            'JOIN pg_catalog.pg_proc p ON (f.funcid = p.oid) '
+          'WHERE pg_get_function_arguments(f.funcid) IS NOT NULL';
+        ELSE
+          RAISE 'Unsupported server version.';
+      END CASE;
 
       IF COALESCE((properties #> '{collect,functions}')::boolean, true) THEN
         INSERT INTO last_stat_user_functions(
@@ -789,7 +974,8 @@ BEGIN
           calls,
           total_time,
           self_time,
-          trg_fn
+          trg_fn,
+          stats_reset
         )
         SELECT
           sserver_id,
@@ -802,7 +988,8 @@ BEGIN
           dbl.calls AS calls,
           dbl.total_time AS total_time,
           dbl.self_time AS self_time,
-          dbl.trg_fn
+          dbl.trg_fn,
+          dbl.stats_reset
         FROM dblink('server_db_connection', t_query)
         AS dbl (
            funcid       oid,
@@ -812,7 +999,8 @@ BEGIN
            calls        bigint,
            total_time   double precision,
            self_time    double precision,
-           trg_fn       boolean
+           trg_fn       boolean,
+           stats_reset  timestamp with time zone
         );
 
         IF NOT analyze_list @> ARRAY[format('last_stat_user_functions_srv%1$s', sserver_id)] THEN
