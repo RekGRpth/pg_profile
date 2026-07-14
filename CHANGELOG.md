@@ -1,5 +1,8 @@
 # pg_profile changelog
 
+## 4.15
+- Fixed #164. Lost constraint with cascade deletion of subsamples data due to retention policy. Reported by @sgrinko
+
 ## 4.14
 - Support of PostgreSQL 19 statistics
 - Support of *pg_stat_statements* 1.13
