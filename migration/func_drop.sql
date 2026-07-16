@@ -1,0 +1,1 @@
+DROP FUNCTION collect_tablespace_stats;
