@@ -1,66 +1,45 @@
 /* ===== Cluster stats functions ===== */
-CREATE FUNCTION wal_stats_reset(IN sserver_id integer, IN start_id integer, IN end_id integer)
+CREATE FUNCTION wal_stats_reset_format(IN report_context jsonb, IN sserver_id integer,
+  IN start_id integer, IN end_id integer)
 RETURNS TABLE(
-        sample_id        integer,
-        wal_stats_reset  timestamp with time zone
+  sample_id     integer,
+  stats_reset   timestamp with time zone,
+  ord_sample    integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
-      ws1.sample_id as sample_id,
-      nullif(ws1.stats_reset,ws0.stats_reset)
-  FROM sample_stat_wal ws1
-      JOIN sample_stat_wal ws0 ON (ws1.server_id = ws0.server_id AND ws1.sample_id = ws0.sample_id + 1)
-  WHERE ws1.server_id = sserver_id AND ws1.sample_id BETWEEN start_id + 1 AND end_id
-    AND
-      nullif(ws1.stats_reset,ws0.stats_reset) IS NOT NULL
-  ORDER BY ws1.sample_id ASC
+    min(sample_id) AS sample_id,
+    stats_reset,
+    row_number() OVER (ORDER BY min(sample_id) ASC)::integer AS ord_sample
+  FROM sample_stat_wal
+  WHERE
+    server_id = sserver_id
+    AND sample_id BETWEEN start_id AND end_id
+    AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+  GROUP BY stats_reset;
 $$ LANGUAGE sql;
 
-CREATE FUNCTION wal_stats_reset_format(IN sserver_id integer, IN start_id integer, IN end_id integer)
-RETURNS TABLE(
-  sample_id       integer,
-  wal_stats_reset text,
-  ord_sample      integer
-)
-SET search_path=@extschema@ AS $$
-  SELECT
-    sample_id,
-    wal_stats_reset::text,
-    row_number() OVER (ORDER BY sample_id ASC) AS ord_sample
-  FROM
-    wal_stats_reset(sserver_id, start_id, end_id)
-$$ LANGUAGE sql;
-
-CREATE FUNCTION wal_stats_reset_format_diff(IN sserver_id integer,
+CREATE FUNCTION wal_stats_reset_format_diff(IN report_context jsonb, IN sserver_id integer,
   IN start1_id integer, IN end1_id integer,
   IN start2_id integer, IN end2_id integer)
 RETURNS TABLE(
-  interval_num    integer,
-  sample_id       integer,
-  wal_stats_reset text,
-  ord_sample      integer
+  sample_id     integer,
+  stats_reset   timestamp with time zone,
+  ord_sample    integer
 )
 SET search_path=@extschema@ AS $$
   SELECT
-    interval_num,
-    sample_id,
-    wal_stats_reset,
-    row_number() OVER (ORDER BY interval_num ASC, sample_id ASC) AS ord_sample
-  FROM (
-    SELECT
-      1 AS interval_num,
-      sample_id,
-      wal_stats_reset::text AS wal_stats_reset
-    FROM
-      wal_stats_reset(sserver_id, start1_id, end1_id)
-    UNION
-    SELECT
-      2 AS interval_num,
-      sample_id,
-      wal_stats_reset::text AS wal_stats_reset
-    FROM
-      wal_stats_reset(sserver_id, start2_id, end2_id)
-  ) w;
+    min(sample_id) AS sample_id,
+    stats_reset,
+    row_number() OVER (ORDER BY min(sample_id))::integer AS ord_sample
+  FROM sample_stat_wal
+  WHERE
+    server_id = sserver_id
+    AND (sample_id BETWEEN start1_id AND end1_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+      OR sample_id BETWEEN start2_id AND end2_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start2}')::timestamp with time zone)
+ GROUP BY stats_reset;
 $$ LANGUAGE sql;
 
 CREATE FUNCTION wal_stats(IN sserver_id integer, IN start_id integer, IN end_id integer)

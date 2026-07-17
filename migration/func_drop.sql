@@ -1,1 +1,14 @@
 DROP FUNCTION collect_tablespace_stats;
+DROP FUNCTION get_report_datasets;
+DROP FUNCTION cluster_stat_io_resets;
+DROP FUNCTION cluster_stat_io_reset_format(integer,integer,integer);
+DROP FUNCTION cluster_stat_io_reset_format(integer,integer,integer,integer,integer);
+DROP FUNCTION cluster_stat_lock_resets;
+DROP FUNCTION cluster_stat_lock_reset_format(integer,integer,integer);
+DROP FUNCTION cluster_stat_lock_reset_format(integer,integer,integer,integer,integer);
+DROP FUNCTION cluster_stat_slru_resets;
+DROP FUNCTION cluster_stat_slru_reset_format(integer,integer,integer);
+DROP FUNCTION cluster_stat_slru_reset_format(integer,integer,integer,integer,integer);
+DROP FUNCTION wal_stats_reset;
+DROP FUNCTION wal_stats_reset_format;
+DROP FUNCTION wal_stats_reset_format_diff;

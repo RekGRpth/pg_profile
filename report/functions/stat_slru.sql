@@ -116,34 +116,7 @@ RETURNS TABLE(
   ORDER BY NULLIF(name, 'Total') ASC NULLS LAST
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_slru_resets(IN sserver_id integer,
-  IN start_id integer, IN end_id integer)
-RETURNS TABLE(
-    server_id     integer,
-    sample_id     integer,
-    name          text,
-    stats_reset   timestamp with time zone
-)
-SET search_path=@extschema@ AS $$
-  SELECT
-    server_id,
-    min(sample_id) AS sample_id,
-    name,
-    stats_reset
-  FROM (
-    SELECT
-      server_id,
-      name,
-      sample_id,
-      stats_reset,
-      stats_reset IS DISTINCT FROM first_value(stats_reset) OVER (PARTITION BY server_id, name ORDER BY sample_id) AS stats_reset_changed
-    FROM sample_stat_slru
-    WHERE server_id = sserver_id AND sample_id BETWEEN start_id AND end_id) st
-  WHERE st.stats_reset_changed
-  GROUP BY server_id, name, stats_reset;
-$$ LANGUAGE sql;
-
-CREATE FUNCTION cluster_stat_slru_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_slru_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -152,14 +125,19 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     name,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, name ASC) as ord_sample
-  FROM cluster_stat_slru_resets(sserver_id, start_id, end_id);
+    row_number() OVER (ORDER BY min(sample_id) ASC, name ASC) as ord_sample
+  FROM sample_stat_slru
+  WHERE
+    server_id = sserver_id
+    AND sample_id BETWEEN start_id AND end_id
+    AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+  GROUP BY name, stats_reset;
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_slru_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_slru_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start1_id integer, IN end1_id integer, IN start2_id integer, IN end2_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -168,21 +146,16 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     name,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, name ASC) as ord_sample
-  FROM (
-    SELECT
-      sample_id,
-      name,
-      stats_reset
-    FROM cluster_stat_slru_resets(sserver_id, start1_id, end1_id)
-    UNION
-    SELECT
-      sample_id,
-      name,
-      stats_reset
-    FROM cluster_stat_slru_resets(sserver_id, start2_id, end2_id)
-    ) st;
+    row_number() OVER (ORDER BY min(sample_id) ASC, name ASC) as ord_sample
+  FROM sample_stat_slru
+  WHERE
+    server_id = sserver_id
+    AND (sample_id BETWEEN start1_id AND end1_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+      OR sample_id BETWEEN start2_id AND end2_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start2}')::timestamp with time zone)
+  GROUP BY name, stats_reset;
 $$ LANGUAGE sql;

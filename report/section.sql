@@ -838,7 +838,7 @@ BEGIN
         -- IO reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_io_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_io_reset_format(sserver_id, start1_id, end1_id) dt;
+        FROM cluster_stat_io_reset_format(report_context, sserver_id, start1_id, end1_id) dt;
       END IF;
     END IF;
 
@@ -851,7 +851,7 @@ BEGIN
         -- SLRU reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_slru_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_slru_reset_format(sserver_id, start1_id, end1_id) dt;
+        FROM cluster_stat_slru_reset_format(report_context, sserver_id, start1_id, end1_id) dt;
       END IF;
     END IF;
 
@@ -864,7 +864,7 @@ BEGIN
         -- lock reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_lock_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_lock_reset_format(sserver_id, start1_id, end1_id) dt;
+        FROM cluster_stat_lock_reset_format(report_context, sserver_id, start1_id, end1_id) dt;
       END IF;
     END IF;
 
@@ -905,7 +905,7 @@ BEGIN
       -- WAL stats reset dataset
       SELECT coalesce(jsonb_set(datasets, '{wal_stats_reset}', jsonb_agg(to_jsonb(dt))), datasets)
       INTO datasets
-      FROM wal_stats_reset_format(sserver_id, start1_id, end1_id) dt;
+      FROM wal_stats_reset_format(report_context, sserver_id, start1_id, end1_id) dt;
     END IF;
 
     IF (report_context #>> '{report_features,wal_stats}')::boolean THEN
@@ -1149,7 +1149,7 @@ BEGIN
         -- SLRU reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_io_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_io_reset_format(sserver_id,
+        FROM cluster_stat_io_reset_format(report_context, sserver_id,
           start1_id, end1_id, start2_id, end2_id) dt;
       END IF;
     END IF;
@@ -1164,7 +1164,7 @@ BEGIN
         -- SLRU reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_slru_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_slru_reset_format(sserver_id,
+        FROM cluster_stat_slru_reset_format(report_context, sserver_id,
           start1_id, end1_id, start2_id, end2_id) dt;
       END IF;
     END IF;
@@ -1179,7 +1179,7 @@ BEGIN
         -- lock reset dataset
         SELECT coalesce(jsonb_set(datasets, '{stat_lock_reset}', jsonb_agg(to_jsonb(dt))), datasets)
         INTO datasets
-        FROM cluster_stat_lock_reset_format(sserver_id,
+        FROM cluster_stat_lock_reset_format(report_context, sserver_id,
           start1_id, end1_id, start2_id, end2_id) dt;
       END IF;
     END IF;
@@ -1225,7 +1225,7 @@ BEGIN
       -- WAL stats reset dataset
       SELECT coalesce(jsonb_set(datasets, '{wal_stats_reset}', jsonb_agg(to_jsonb(dt))), datasets)
       INTO datasets
-      FROM wal_stats_reset_format_diff(sserver_id, start1_id, end1_id,
+      FROM wal_stats_reset_format_diff(report_context, sserver_id, start1_id, end1_id,
         start2_id, end2_id) dt;
     END IF;
 
