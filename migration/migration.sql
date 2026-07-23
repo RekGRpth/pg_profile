@@ -2,6 +2,10 @@ INSERT INTO import_queries_version_order VALUES
 ('pg_profile','4.15','pg_profile','4.14')
 ;
 
+DELETE FROM report_struct;
+DELETE FROM report;
+DELETE FROM report_static;
+
 DELETE FROM sample_stat_activity_cnt ss
 WHERE (ss.server_id, ss.sample_id) NOT IN (
   SELECT server_id, sample_id FROM samples
