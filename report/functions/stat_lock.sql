@@ -105,31 +105,7 @@ RETURNS TABLE(
   GROUP BY ROLLUP(locktype)
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_lock_resets(IN sserver_id integer,
-  IN start_id integer, IN end_id integer)
-RETURNS TABLE(
-  sample_id     integer,
-  locktype      text,
-  stats_reset   timestamp with time zone
-)
-SET search_path=@extschema@ AS $$
-  SELECT
-    min(sample_id) AS sample_id,
-    locktype,
-    stats_reset
-  FROM (
-    SELECT
-      sample_id,
-      locktype,
-      stats_reset,
-      stats_reset IS DISTINCT FROM first_value(stats_reset) OVER (PARTITION BY locktype ORDER BY sample_id) AS stats_reset_changed
-    FROM sample_stat_lock
-    WHERE server_id = sserver_id AND sample_id BETWEEN start_id AND end_id)
-  WHERE stats_reset_changed
-  GROUP BY locktype, stats_reset;
-$$ LANGUAGE sql;
-
-CREATE FUNCTION cluster_stat_lock_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_lock_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -138,14 +114,19 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     locktype,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, locktype ASC) as ord_sample
-  FROM cluster_stat_lock_resets(sserver_id, start_id, end_id);
+    row_number() OVER (ORDER BY min(sample_id) ASC, locktype ASC) as ord_sample
+  FROM sample_stat_lock
+  WHERE
+    server_id = sserver_id
+    AND sample_id BETWEEN start_id AND end_id
+    AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+  GROUP BY locktype, stats_reset;
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_lock_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_lock_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start1_id integer, IN end1_id integer, IN start2_id integer, IN end2_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -154,21 +135,16 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     locktype,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, locktype ASC) as ord_sample
-  FROM (
-    SELECT
-      sample_id,
-      locktype,
-      stats_reset
-    FROM cluster_stat_lock_resets(sserver_id, start1_id, end1_id)
-    UNION
-    SELECT
-      sample_id,
-      locktype,
-      stats_reset
-    FROM cluster_stat_lock_resets(sserver_id, start2_id, end2_id)
-    ) st;
+    row_number() OVER (ORDER BY min(sample_id) ASC, locktype ASC) as ord_sample
+  FROM sample_stat_lock
+  WHERE
+    server_id = sserver_id
+    AND (sample_id BETWEEN start1_id AND end1_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+      OR sample_id BETWEEN start2_id AND end2_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start2}')::timestamp with time zone)
+  GROUP BY locktype, stats_reset;
 $$ LANGUAGE sql;

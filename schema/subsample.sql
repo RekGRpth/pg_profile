@@ -184,6 +184,9 @@ CREATE TABLE sample_stat_activity_cnt(
     ),
     CONSTRAINT subsample_attrs FOREIGN KEY (server_id, sess_attr_id)
       REFERENCES session_attr(server_id, sess_attr_id) ON DELETE CASCADE
+      DEFERRABLE INITIALLY IMMEDIATE,
+    CONSTRAINT subsample_sa_cnt_servers FOREIGN KEY (server_id, sample_id)
+      REFERENCES samples (server_id, sample_id) ON DELETE CASCADE
       DEFERRABLE INITIALLY IMMEDIATE
 );
 

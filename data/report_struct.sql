@@ -507,7 +507,7 @@ VALUES
     '"ordering": "ord_sample",'
     '"columns": ['
         '{"id": "sample_id", "class": "table_obj_value", "caption": "Sample"},'
-        '{"id": "wal_stats_reset", "class": "table_obj_value", "caption": "WAL stats reset time"}'
+        '{"id": "stats_reset", "class": "table_obj_value", "caption": "WAL stats reset time"}'
     ']}]'::jsonb),
 (1, 'walst', 'srvstat', 1200, NULL, NULL, 'wal_stats', NULL, NULL,
   '[{'
@@ -2414,7 +2414,6 @@ VALUES
     '"source": "dbstats_reset", '
     '"ordering": "ord_sample",'
     '"columns": ['
-        '{"id": "interval_num", "class": "table_obj_value", "caption": "I"}, '
         '{"id": "dbname", "class": "table_obj_name", "caption": "Database"}, '
         '{"id": "sample_id", "class": "table_obj_value", "caption": "Sample"}, '
         '{"id": "stats_reset", "class": "table_obj_value", "caption": "Reset time"}'
@@ -2838,9 +2837,8 @@ VALUES
     '"source": "wal_stats_reset",'
     '"ordering": "ord_sample",'
     '"columns": ['
-      '{"id": "interval_num", "class": "table_obj_value", "caption": "I"},'
       '{"id": "sample_id", "class": "table_obj_value", "caption": "Sample"},'
-      '{"id": "wal_stats_reset", "class": "table_obj_value", "caption": "WAL stats reset time"}'
+      '{"id": "stats_reset", "class": "table_obj_value", "caption": "WAL stats reset time"}'
     ']}]'::jsonb),
 (2, 'walst', 'srvstat', 1200, NULL, NULL, 'wal_stats', NULL, NULL,
   '[{'

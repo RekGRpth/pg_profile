@@ -204,40 +204,7 @@ RETURNS TABLE(
   GROUP BY ROLLUP(object, backend_type, context)
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_io_resets(IN sserver_id integer,
-  IN start_id integer, IN end_id integer)
-RETURNS TABLE(
-    server_id     integer,
-    sample_id     integer,
-    backend_type  text,
-    object        text,
-    context       text,
-    stats_reset   timestamp with time zone
-)
-SET search_path=@extschema@ AS $$
-  SELECT
-    server_id,
-    min(sample_id) AS sample_id,
-    backend_type,
-    object,
-    context,
-    stats_reset
-  FROM (
-    SELECT
-      server_id,
-      backend_type,
-      object,
-      context,
-      sample_id,
-      stats_reset,
-      stats_reset IS DISTINCT FROM first_value(stats_reset) OVER (PARTITION BY server_id, backend_type, object, context ORDER BY sample_id) AS stats_reset_changed
-    FROM sample_stat_io
-    WHERE server_id = sserver_id AND sample_id BETWEEN start_id AND end_id) st
-  WHERE stats_reset_changed
-  GROUP BY server_id, backend_type, object, context, stats_reset;
-$$ LANGUAGE sql;
-
-CREATE FUNCTION cluster_stat_io_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_io_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start_id integer, IN end_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -248,16 +215,21 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     backend_type,
     object,
     context,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, object ASC, backend_type ASC, context ASC) as ord_sample
-  FROM cluster_stat_io_resets(sserver_id, start_id, end_id);
+    row_number() OVER (ORDER BY min(sample_id) ASC, object ASC, backend_type ASC, context ASC)::integer as ord_sample
+  FROM sample_stat_io
+  WHERE
+    server_id = sserver_id
+    AND sample_id BETWEEN start_id AND end_id
+    AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+  GROUP BY backend_type, object, context, stats_reset;
 $$ LANGUAGE sql;
 
-CREATE FUNCTION cluster_stat_io_reset_format(IN sserver_id integer,
+CREATE FUNCTION cluster_stat_io_reset_format(IN report_context jsonb, IN sserver_id integer,
   IN start1_id integer, IN end1_id integer, IN start2_id integer, IN end2_id integer)
 RETURNS TABLE(
     sample_id     integer,
@@ -268,28 +240,18 @@ RETURNS TABLE(
     ord_sample    integer
 ) SET search_path=@extschema@ AS $$
   SELECT
-    sample_id,
+    min(sample_id) AS sample_id,
     backend_type,
     object,
     context,
     stats_reset,
-    row_number() OVER (ORDER BY sample_id ASC, object ASC, backend_type ASC, context ASC) as ord_sample
-  FROM (
-    SELECT
-      sample_id,
-      backend_type,
-      object,
-      context,
-      stats_reset
-    FROM cluster_stat_io_resets(sserver_id, start1_id, end1_id)
-    UNION
-    SELECT
-      sample_id,
-      backend_type,
-      object,
-      context,
-      stats_reset
-    FROM cluster_stat_io_resets(sserver_id, start2_id, end2_id)
-    ) st
-  ORDER BY sample_id ASC, object ASC, backend_type ASC
+    row_number() OVER (ORDER BY min(sample_id) ASC, object ASC, backend_type ASC, context ASC)::integer as ord_sample
+  FROM sample_stat_io
+  WHERE
+    server_id = sserver_id
+    AND (sample_id BETWEEN start1_id AND end1_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start1}')::timestamp with time zone
+      OR sample_id BETWEEN start2_id AND end2_id
+      AND stats_reset > (report_context #>> '{report_properties,report_start2}')::timestamp with time zone)
+  GROUP BY backend_type, object, context, stats_reset;
 $$ LANGUAGE sql;
